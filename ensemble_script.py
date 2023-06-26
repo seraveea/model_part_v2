@@ -6,20 +6,13 @@ from qlib.data.dataset import DatasetH
 from qlib.data.dataset.handler import DataHandlerLP
 from qlib.config import REG_US, REG_CN
 import qlib
-from dataloader import DataLoader
+from utils.dataloader import DataLoader
 import numpy as np
 import pandas as pd
 import torch
 import argparse
 from tqdm import tqdm
-from qlib.contrib.model.pytorch_gru import GRUModel
-from qlib.contrib.model.pytorch_lstm import LSTMModel
-from qlib.contrib.model.pytorch_gats import GATModel
-from qlib.contrib.model.pytorch_sfm import SFM_Model
-from qlib.contrib.model.pytorch_alstm import ALSTMModel
-from qlib.contrib.model.pytorch_transformer import Transformer
-from model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR
-from rsr_model import NRSR
+from models.model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 import json
@@ -56,25 +49,25 @@ def get_model(model_name):
         return MLP
 
     if model_name.upper() == 'LSTM':
-        return LSTMModel
+        return LSTM
 
     if model_name.upper() == 'GRU':
-        return GRUModel
+        return GRU
 
     if model_name.upper() == 'GATS':
-        return GATModel
+        return GAT
 
     if model_name.upper() == 'SFM':
-        return SFM_Model
+        return SFM
 
     if model_name.upper() == 'ALSTM':
-        return ALSTMModel
+        return ALSTM
 
     if model_name.upper() == 'HIST':
         return HIST
 
-    if model_name.upper() == 'NRSR':
-        return NRSR
+    if model_name.upper() == 'RSR':
+        return RSR
 
     raise ValueError('unknown model name `%s`' % model_name)
 
@@ -145,7 +138,7 @@ def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=
         with torch.no_grad():
             if model_name == 'HIST':
                 pred = model(feature, stock2concept_matrix[stock_index], market_value)
-            elif model_name == 'NRSR':
+            elif model_name == 'RSR':
                 pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             else:
                 pred = model(feature)
@@ -202,7 +195,7 @@ def prediction(args, test_loader):
         # HIST need stock2concept matrix, send it to device
         stock2concept_matrix = torch.Tensor(np.load(stock2concept_matrix)).to(device)
         model = get_model(args.model_name)(d_feat=args.d_feat, num_layers=args.num_layers, K=args.K)
-    elif args.model_name == 'NRSR':
+    elif args.model_name == 'RSR':
         stock2stock_matrix = torch.Tensor(np.load(stock2stock_matrix)).to(device)
         num_relation = stock2stock_matrix.shape[2]  # the number of relations
         model = get_model(args.model_name)(num_relation=num_relation, d_feat=args.d_feat, num_layers=args.num_layers)
@@ -225,7 +218,7 @@ def average(model_pool, prefix):
         if m == 'HIST':
             args.stock2concept = param_dict['stock2concept_matrix']
             # args.market_value_path = param_dict['market_value_path']
-        if m == 'NRSR':
+        if m == 'RSR':
             args.stock2stock_matrix = param_dict['stock2stock_matrix']
         temp = prediction(args)
         pred_group.append(temp)
@@ -263,7 +256,7 @@ def blending(model_pool, prefix):
         if m == 'HIST':
             args.stock2concept = param_dict['stock2concept_matrix']
             # args.market_value_path = param_dict['market_value_path']
-        if m == 'NRSR':
+        if m == 'RSR':
             args.stock2stock_matrix = param_dict['stock2stock_matrix']
         temp = prediction(args, test_loader)
         pred_group.append(temp)
@@ -285,7 +278,7 @@ def blending(model_pool, prefix):
         if m == 'HIST':
             args.stock2concept = param_dict['stock2concept_matrix']
             # args.market_value_path = param_dict['market_value_path']
-        if m == 'NRSR':
+        if m == 'RSR':
             args.stock2stock_matrix = param_dict['stock2stock_matrix']
         temp = prediction(args, test_loader)
         pred_group.append(temp)
@@ -324,7 +317,7 @@ def build_level2_dataset(model_pool, prefix):
         args = parse_args(param_dict)
         if m == 'HIST':
             args.stock2concept_matrix = param_dict['stock2concept_matrix']
-        if m == 'NRSR':
+        if m == 'RSR':
             args.stock2stock_matrix = param_dict['stock2stock_matrix']
         temp = prediction(args, test_loader)
         pred_group.append(temp)
@@ -415,7 +408,7 @@ if __name__ == '__main__':
     #     args = parse_args(param_dict)
     #     print(prediction(args))
     #     main(['GATs', 'GRU', 'LSTM', 'MLP'], './output/csi300_')
-    # model_pool = ['GATs', 'GRU', 'LSTM', 'MLP', 'ALSTM', 'SFM', 'HIST','NRSR']
+    # model_pool = ['GATs', 'GRU', 'LSTM', 'MLP', 'ALSTM', 'SFM', 'HIST','RSR']
     model_pool = ['MLP']
     # blending(model_pool, './output/csi300_')
     # temp_model(model_pool)
