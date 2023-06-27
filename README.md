@@ -15,14 +15,14 @@ RSR
 relation_GATs
 Triple_Att
 ------models that SOTA on other time series library-----
-DLinear
-Autoformer
-Crossformer
+DLinear [AAAI 2023]
+Autoformer [NeurIPS 2023]
+Crossformer [ICLR 2023]
 ETSformer
-FEDformer
-FiLM
-Informer
-PatchTST
+FEDformer [ICML 2022]
+FiLM [NeurIPS 2022]
+Informer [AAAI 2021]
+PatchTST [ICLR 2023]
 ---------------------------------------------------------
 ```
 ## Environment
@@ -44,3 +44,7 @@ PatchTST
     python learn.py --model_name [model you choose] --outdir 'output/[folder your named]'
 ## Results
 The result will be stored in output folder, if you need some well-trained models, we provide in [this link](https://drive.google.com/file/d/1yGHXZDcCgY4AAp_UM_gKXyKo25Atmoft/view?usp=sharing)
+
+## acknowledgement
+
+Thanks to research work [HIST](https://github.com/Wentao-Xu/HIST) and [Time-Series-Library](https://github.com/thuml/Time-Series-Library/)
