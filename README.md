@@ -1,27 +1,30 @@
 # Stock prediction module
 This repo is for K-Quant project.
 Now we provide the following models that could be used in stock regression/forecasting/recommendation:
-## basic models
-### MLP
-### GRU
-### LSTM
-### ALSTM
-### SFM
-### GATs
-## models powered by knowledge
-### HIST
-### RSR
-### relation_GATs
-### Triple_Att
-## models that SOTA on other time series library
-### DLinear
-### Autoformer
-### Crossformer
-### ETSformer
-### FEDformer
-### FiLM
-### Informer
-### PatchTST
+```
+-----------------------basic models--------------------
+MLP
+GRU
+LSTM
+ALSTM
+SFM
+GATs
+------------------models powered by knowledge-----------
+HIST
+RSR
+relation_GATs
+Triple_Att
+------models that SOTA on other time series library-----
+DLinear
+Autoformer
+Crossformer
+ETSformer
+FEDformer
+FiLM
+Informer
+PatchTST
+---------------------------------------------------------
+```
 ## Environment
 1. Install python3.8(recommend) 
 2. Install the requirements in [requirements.txt].
