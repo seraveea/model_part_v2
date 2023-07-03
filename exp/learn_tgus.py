@@ -20,15 +20,15 @@ import pickle5 as pickle
 from torch.utils.tensorboard import SummaryWriter
 from qlib.data.dataset.handler import DataHandlerLP
 from qlib.data.dataset import DatasetH
-from model import MLP, GRU, LSTM, GAT, ALSTM, SFM, \
+from models.model import MLP, GRU, LSTM, GAT, ALSTM, SFM, \
     FC_model_no_F, FC_model_no_F_v1, FC_model_no_F_v1_1, FC_model_no_F_v1_2, \
     FC_model_no_F_v1_3, FC_model_no_F_v1_4, FC_model_no_F_v1_5, FC_model_no_F_v1_6, FC_model_no_F_v2, \
     FC_model_no_F_v1_8, FC_model_no_F_v1_10, FC_model_no_F_v1_11, FC_model_no_F_v1_13, \
     FC_model_no_F_v1_14, FC_model_no_F_v1_15, FC_model_no_F_v1_16, FC_model_no_F_v1_17, FC_model_no_F_v1_18,\
     FC_model_no_F_v1_19, FC_model_no_F_v1_20, FC_model_no_F_v1_24
 from qlib.contrib.model.pytorch_transformer import Transformer
-from utils import metric_fn, mse
-from dataloader import DataLoader, DataLoader_v2, DataLoader_v3
+from utils.utils import metric_fn, mse
+from utils.dataloader import DataLoader, DataLoader_v2, DataLoader_v3
 from qlib.config import REG_US, REG_CN
 
 # provider_uri = "~/.qlib/qlib_data/cn_data"  # target_dir

@@ -1,3 +1,7 @@
+"""
+classical single-step stock forecasting task
+follow HIST repo
+"""
 import torch
 import torch.optim as optim
 import os
@@ -10,6 +14,8 @@ import numpy as np
 from tqdm import tqdm
 import pandas as pd
 from torch.utils.tensorboard import SummaryWriter
+import sys
+sys.path.insert(0, sys.path[0]+"/../")
 from models.model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR, relation_GATs, relation_GATs_3heads
 from qlib.contrib.model.pytorch_transformer import Transformer
 from models.DLinear import DLinear_model
@@ -23,6 +29,10 @@ from models.PatchTST import Model as PatchTST
 from utils.utils import metric_fn, mse, loss_ic, pair_wise_loss, NDCG_loss, ApproxNDCG_loss
 from utils.dataloader import create_loaders
 import warnings
+import logging
+
+
+logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
 
 EPS = 1e-12
@@ -515,10 +525,10 @@ def parse_args():
     parser.add_argument('--n_heads', type=int, default=1, help='num of heads')
     parser.add_argument('--d_ff', type=int, default=64, help='dimension of fcn')
     parser.add_argument('--activation', type=str, default='gelu', help='activation')
-    parser.add_argument('--e_layers', type=int, default=1, help='num of encoder layers')
+    parser.add_argument('--e_layers', type=int, default=8, help='num of encoder layers')
     parser.add_argument('--top_k', type=int, default=5, help='for TimesBlock')
-    parser.add_argument('--d_bp', type=int, default=128, help='for stock prediction stock, we need more dimension to'
-                                                               ' preserve more information before full connect layer')
+    parser.add_argument('--task_name', type=str, default='regression', help='task setup')
+    parser.add_argument('--pred_len', type=int, default=-1, help='the length of pred squence, in regression set to -1')
 
     # training
     parser.add_argument('--n_epochs', type=int, default=100)
@@ -531,7 +541,7 @@ def parse_args():
 
     # data
     parser.add_argument('--data_set', type=str, default='csi300')
-    parser.add_argument('--target', type=str, default='t+0')
+    parser.add_argument('--target', type=str, default='t+1')
     parser.add_argument('--pin_memory', action='store_false', default=True)
     parser.add_argument('--batch_size', type=int, default=-1)  # -1 indicate daily batch
     parser.add_argument('--least_samples_num', type=float, default=1137.0) 
@@ -554,9 +564,9 @@ def parse_args():
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
     parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/csi300_ts_PatchTST_1_layer')
+    parser.add_argument('--outdir', default='./output/csi300_t+1/csi300_ts_PatchTST_8_layer')
     parser.add_argument('--overwrite', action='store_true', default=False)
-
+    parser.add_argument('--device', default='cuda:1')
     args = parser.parse_args()
 
     return args
@@ -567,7 +577,5 @@ if __name__ == '__main__':
     for prediction, maybe repeat 5, early_stop 10 is enough
     """
     args = parse_args()
-    "auto generate output dir"
-    if args.target == 't+1':
-        args.outdir = './output/csi300_t+1/csi300_' + args.model_name
+    device = args.device if torch.cuda.is_available() else 'cpu'
     main(args)
