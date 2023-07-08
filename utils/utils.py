@@ -94,7 +94,7 @@ def pair_wise_loss(pred, label, alpha=0.05):
 
 def NDCG_loss(pred, label, alpha=0.05, k=100):
     """
-    original loss function in RSR
+    NDCG loss function
     """
     mask = ~torch.isnan(label)
     pred = pred[mask]

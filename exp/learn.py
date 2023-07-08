@@ -195,7 +195,7 @@ def train_epoch(epoch, model, optimizer, train_loader, writer, args,
             pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
         elif args.model_name in time_series_library:
             # new added
-            pred = model(feature, mask, None, None)
+            pred = model(feature, mask)
         else:
             # other model only use feature as input
             pred = model(feature)
@@ -240,7 +240,7 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
                 pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             elif args.model_name in time_series_library:
                 # new added
-                pred = model(feature, mask, None, None)
+                pred = model(feature, mask)
             else:
                 pred = model(feature)
 
@@ -294,7 +294,7 @@ def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=
                 pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             elif args.model_name in time_series_library:
                 # new added
-                pred = model(feature, mask, None, None)
+                pred = model(feature, mask)
             else:
                 pred = model(feature)
             preds.append(pd.DataFrame({'score': pred.cpu().numpy(), 'label': label.cpu().numpy(),}, index=index))
@@ -314,7 +314,7 @@ def main(args):
 
     output_path = args.outdir
     if not output_path:
-        output_path = './output/' + suffix
+        output_path = '../ouput/' + suffix
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
@@ -503,7 +503,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # model
-    parser.add_argument('--model_name', default='PatchTST')
+    parser.add_argument('--model_name', default='HIST')
     parser.add_argument('--d_feat', type=int, default=6)
     parser.add_argument('--hidden_size', type=int, default=128)
     parser.add_argument('--num_layers', type=int, default=2)
@@ -529,6 +529,7 @@ def parse_args():
     parser.add_argument('--top_k', type=int, default=5, help='for TimesBlock')
     parser.add_argument('--task_name', type=str, default='regression', help='task setup')
     parser.add_argument('--pred_len', type=int, default=-1, help='the length of pred squence, in regression set to -1')
+    parser.add_argument('--de_norm', default=True, help='de normalize or not')
 
     # training
     parser.add_argument('--n_epochs', type=int, default=100)
@@ -546,25 +547,25 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=-1)  # -1 indicate daily batch
     parser.add_argument('--least_samples_num', type=float, default=1137.0) 
     parser.add_argument('--label', default='')  # specify other labels
-    parser.add_argument('--train_start_date', default='2007-01-01')
-    parser.add_argument('--train_end_date', default='2014-12-31')
-    parser.add_argument('--valid_start_date', default='2015-01-01')
-    parser.add_argument('--valid_end_date', default='2016-12-31')
-    parser.add_argument('--test_start_date', default='2017-01-01')
-    parser.add_argument('--test_end_date', default='2020-12-31')
+    parser.add_argument('--train_start_date', default='2008-01-01')
+    parser.add_argument('--train_end_date', default='2016-12-31')
+    parser.add_argument('--valid_start_date', default='2017-01-01')
+    parser.add_argument('--valid_end_date', default='2019-12-31')
+    parser.add_argument('--test_start_date', default='2020-01-01')
+    parser.add_argument('--test_end_date', default='2022-12-31')
 
     # other
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--annot', default='')
     parser.add_argument('--config', action=ParseConfigFile, default='')
-    parser.add_argument('--name', type=str, default='PatchTST')
+    parser.add_argument('--name', type=str, default='HIST')
 
     # input for csi 300
     parser.add_argument('--market_value_path', default='./data/csi300_market_value_07to22.pkl')
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
     parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/csi300_t+1/csi300_ts_PatchTST_8_layer')
+    parser.add_argument('--outdir', default='./output/csi300_t+1/csi300_ts_HIST_latest')
     parser.add_argument('--overwrite', action='store_true', default=False)
     parser.add_argument('--device', default='cuda:1')
     args = parser.parse_args()

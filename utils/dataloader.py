@@ -5,9 +5,9 @@ import qlib
 import datetime
 from qlib.config import REG_US, REG_CN
 
-provider_uri = "~/.qlib/qlib_data/cn_data"  # target_dir
+# provider_uri = "~/.qlib/qlib_data/cn_data"  # target_dir
 # provider_uri = "../qlib_data/cn_data"  # target_dir
-# provider_uri = "../qlib_data/cn_data_build"
+provider_uri = "../qlib_data/cn_data"
 qlib.init(provider_uri=provider_uri, region=REG_CN)
 from qlib.data.dataset import DatasetH
 from qlib.data.dataset.handler import DataHandlerLP
@@ -371,3 +371,48 @@ def create_loaders(args, device):
                              pin_memory=True, start_index=start_index, device=device)
 
     return train_loader, valid_loader, test_loader
+
+
+def create_test_loaders(args, param_dict,device):
+    """
+    return a single dataloader for prediction
+    """
+    start_time = datetime.datetime.strptime(args.test_start_date, '%Y-%m-%d')
+    end_time = datetime.datetime.strptime(args.test_end_date, '%Y-%m-%d')
+    start_date = args.test_start_date
+    end_date = args.test_end_date
+    # 此处fit_start_time参照官方文档和代码
+    hanlder = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
+               'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
+                          'fit_end_time': end_time, 'instruments': param_dict['data_set'], 'infer_processors': [
+                       {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
+                       {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
+                          'learn_processors': [{'class': 'DropnaLabel'},
+                                               {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
+                          'label': ['Ref($close, -2) / Ref($close, -1) - 1']}}
+    segments = {'test': (start_date, end_date)}
+    dataset = DatasetH(hanlder, segments)
+    # prepare return a list of df, df_test is the first one
+    df_test = dataset.prepare(["test"], col_set=["feature", "label"], data_key=DataHandlerLP.DK_L, )[0]
+    # ----------------------------------------
+    import pickle5 as pickle
+    # only HIST need this
+    with open(param_dict['market_value_path'], "rb") as fh:
+        # load market value
+        df_market_value = pickle.load(fh)
+        # the df_market_value save
+    df_market_value = df_market_value / 1000000000
+    stock_index = np.load(param_dict['stock_index'], allow_pickle=True).item()
+    # stock_index is a dict and stock is the key, index is the value
+    start_index = 0
+
+    slc = slice(pd.Timestamp(start_date), pd.Timestamp(end_date))
+    df_test['market_value'] = df_market_value[slc]
+    df_test['market_value'] = df_test['market_value'].fillna(df_test['market_value'].mean())
+    df_test['stock_index'] = 733
+    df_test['stock_index'] = df_test.index.get_level_values('instrument').map(stock_index).fillna(733).astype(int)
+    start_index += len(df_test.groupby(level=0).size())
+
+    test_loader = DataLoader(df_test["feature"], df_test["label"], df_test['market_value'], df_test['stock_index'],
+                             pin_memory=True, start_index=start_index, device=device)
+    return test_loader
