@@ -2,12 +2,16 @@
 This repo is for K-Quant project, stock forecasting module.
 ### ---------------------------------[Update] July 8th-------------------------------------------
 We rewrite prediction.py and re-structure the pipeline;
+
 Now you can try the mlp model in this pipeline, from training to predicting;
+
 To get the prediction result, run the following command line:
+
 ```commandline
 python exp/prediction.py -pkl_path './pred_output/xxx.pkl'
 ```
 The prediction result will be stored in ```pred_output``` folder
+
 We recommend using an up-to-date Qlib data source
 ```commandline
 wget https://github.com/chenditc/investment_data/releases/download/2023-07-01/qlib_bin.tar.gz
