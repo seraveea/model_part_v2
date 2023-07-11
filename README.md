@@ -8,6 +8,7 @@ To get the prediction result, run the following command line:
 python exp/prediction.py -pkl_path './pred_output/xxx.pkl'
 ```
 The prediction result will be stored in ```pred_output``` folder
+
 We recommend using an up-to-date Qlib data source
 ```commandline
 wget https://github.com/chenditc/investment_data/releases/download/2023-07-01/qlib_bin.tar.gz
