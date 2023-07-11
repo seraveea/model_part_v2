@@ -36,10 +36,10 @@ def approxNDCGLoss(y_pred, y_true, eps=1, alpha=1.):
     y_true_sorted.clamp_(min=0.)
 
     # Here we find the gains, discounts and ideal DCGs per slate.
-    pos_idxs = torch.arange(1, y_pred.shape[0] + 1).to(device)
+    pos_idxs = torch.arange(1, y_pred.shape[0] + 1).to(device)  # new index tensor
     D = torch.log2(1. + pos_idxs.float())[None, :]
-    maxDCGs = torch.sum((torch.pow(2, y_true_sorted) - 1) / D, dim=-1).clamp(min=eps)
-    G = (torch.pow(2, true_sorted_by_preds) - 1) / maxDCGs[:, None]
+    maxDCGs = torch.sum((torch.pow(2, y_true_sorted) - 1) / D, dim=-1).clamp(min=eps)  # ideal DCG
+    G = (torch.pow(2, true_sorted_by_preds) - 1) / maxDCGs[:, None]  # here is the (upper part of approxDCG)/ideal DCG
 
     # Here we approximate the ranking positions according to Eqs 19-20 and later approximate NDCG (Eq 21)
     scores_diffs = y_pred_sorted[:, None].repeat(1, y_pred_sorted.shape[0]) - \
@@ -47,7 +47,7 @@ def approxNDCGLoss(y_pred, y_true, eps=1, alpha=1.):
     # scores_diffs = (y_pred_sorted[:, :, None] - y_pred_sorted[:, None, :])
     # when sigmoid = 0.5, then the diff = 0, which is the original value of itself
     sig = torch.sigmoid(-alpha * scores_diffs)
-    approx_pos = 1. + torch.sum(sig * (sig > 0.5), dim=-1)
+    approx_pos = 1. + torch.sum(sig * (sig > 0.5), dim=-1)  # sig > 0.5 means only count the weight when t > s
     approx_D = torch.log2(1. + approx_pos)
     approx_NDCG = torch.sum((G / approx_D), dim=-1)
     return -torch.mean(approx_NDCG)

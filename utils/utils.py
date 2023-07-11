@@ -168,3 +168,51 @@ def ApproxNDCG_loss(pred, label, alpha=0.05, k=100):
     ndcg_part = approxNDCGLoss_cutk(pred, label, k=k) * alpha
     point_wise = mse(pred, label)
     return point_wise + ndcg_part
+
+
+def Discrete_NDCG(pred, label):
+    """
+    issues: if we use NDCG, get weight*prob, then most will drop into middle part, this is not helpful
+            for example, with [3,2,1,0] related weights, we have two prob [0,0.5,0.5,0] and [0.5,0,0,0.5]
+            those two have THE SAME weights, this is not RIGHT!
+    :param pred: the output of model [B,N]
+    :param label: the ground truth [B]
+    :return:
+    """
+    m = torch.nn.Softmax(dim=1)
+    pred_n = m(pred)  # [B,N]
+    default_weight = torch.Tensor([3, 2, 1, 0], device=pred_n.device)
+    x = torch.sum(pred_n*default_weight, dim=1)
+    return None
+
+
+def cross_entropy(pred, label):
+    """
+    :param pred: the prediction result from model shape [B,N]
+    :param label: the label from dataset is the score, we will divide those score into 4 groups as their label
+    :return:
+    """
+    ce_loss = torch.nn.CrossEntropyLoss()
+    group = pred.shape[1]
+    mc_label = torch.zeros(label.shape[0], pred.shape[1])
+    for i in range(1, group):
+        indices = torch.topk(label,int(label.shape[0]*i/group)).indices
+        mc_label[indices] += 1
+    return ce_loss(pred, mc_label)
+
+
+def generate_label(pred,label):
+    ce_loss = torch.nn.CrossEntropyLoss()
+    group = pred.shape[1]
+    mc_label = torch.zeros(label.shape[0], pred.shape[1])
+    for i in range(1, group):
+        indices = torch.topk(label, int(label.shape[0]*i/group)).indices
+        mc_label[indices] += 1  # shape B
+    pred_label = torch.topk(pred, 1).indices.squeeze()  # shape B
+    return pred_label, mc_label
+
+
+
+
+
+

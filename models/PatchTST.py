@@ -70,6 +70,11 @@ class Model(nn.Module):
             self.flatten = nn.Flatten(start_dim=-2)
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(self.head_nf * configs.d_feat, 1)
+        elif self.task_name == 'multi-class':
+            self.flatten = nn.Flatten(start_dim=-2)
+            self.dropout = nn.Dropout(configs.dropout)
+            self.projection = nn.Linear(
+                self.head_nf * configs.d_feat, configs.num_class)
 
     def forecast(self, x_enc):
         # Normalization from Non-stationary Transformer
@@ -139,6 +144,38 @@ class Model(nn.Module):
         output = self.projection(output)  # (batch_size, num_classes)
         return output
 
+    def classification(self, x_enc, x_mark_enc):
+        x_enc = x_enc.reshape(len(x_enc), self.d_feat, -1)  # [N, F, T]
+        x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
+        x_mark_enc = x_mark_enc.reshape(len(x_mark_enc), self.d_feat, -1)
+        x_mark_enc = x_mark_enc.permute(0, 2, 1)
+        means = x_enc.mean(1, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(
+            torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        x_enc /= stdev
+
+        # do patching and embedding
+        x_enc = x_enc.permute(0, 2, 1)
+        # u: [bs * nvars x patch_num x d_model]
+        enc_out, n_vars = self.patch_embedding(x_enc)
+
+        # Encoder
+        # z: [bs * nvars x patch_num x d_model]
+        enc_out, attns = self.encoder(enc_out)
+        # z: [bs x nvars x patch_num x d_model]
+        enc_out = torch.reshape(
+            enc_out, (-1, n_vars, enc_out.shape[-2], enc_out.shape[-1]))
+        # z: [bs x nvars x d_model x patch_num]
+        enc_out = enc_out.permute(0, 1, 3, 2)
+
+        # Decoder
+        output = self.flatten(enc_out)
+        output = self.dropout(output)
+        output = output.reshape(output.shape[0], -1)
+        output = self.projection(output)  # (batch_size, num_classes)
+        return output
+
     def forward(self, x_enc, x_mark_enc):
         if self.task_name == 'regression':
             dec_out = self.regression(x_enc, x_mark_enc)
@@ -146,4 +183,7 @@ class Model(nn.Module):
         if self.task_name == 'long_term_forecast':
             dec_out = self.forecast(x_enc)
             return dec_out[:, -self.pred_len:, :]  # [B, L, D]
+        if self.task_name == 'multi-class':
+            dec_out = self.classification(x_enc, x_mark_enc)
+            return dec_out  # [B, Number of classes]
         return None
