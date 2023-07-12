@@ -30,7 +30,7 @@ from models.FiLM import Model as FiLM
 from models.Informer import Model as Informer
 from models.PatchTST import Model as PatchTST
 from utils.utils import metric_fn, mse, loss_ic, pair_wise_loss, NDCG_loss, ApproxNDCG_loss, cross_entropy, \
-    generate_label
+    generate_label, evaluate_mc
 from utils.dataloader import create_loaders
 import warnings
 import logging
@@ -238,21 +238,25 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
                 pred = model(feature)
 
             loss = cross_entropy(pred, label)
+            pred_label, true_label = generate_label(pred, label)
+            preds.append(pd.DataFrame({'pred': pred_label.cpu().numpy(),
+                                       'ground_truth': true_label.cpu().numpy(),}, index=index))
 
             # preds.append(pd.DataFrame({'score': pred.cpu().numpy(), 'label': label.cpu().numpy(), }, index=index))
 
         losses.append(loss.item())
+
     # evaluate
-    # preds = pd.concat(preds, axis=0)
+    preds = pd.concat(preds, axis=0)
     # use metric_fn to compute precision, recall, ic and rank ic
-    # precision, recall, ic, rank_ic, ndcg = metric_fn(preds)
+    acc, average_precision, f1_micro, f1_macro = evaluate_mc(preds)
 
     '''
     here change scores to others 
     score is also very important, since it decide which model to choose 
     '''
     # scores = ic + ndcg[100] + precision[100]
-    scores = -np.means(losses)  # score is the opposite loss
+    scores = -np.mean(losses)  # score is the opposite loss
     # scores = (precision[3] + precision[5] + precision[10] + precision[30])/4.0
     # scores = -1.0 * mse
 
@@ -261,7 +265,7 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
     writer.add_scalar(prefix+'/'+args.metric, np.mean(scores), epoch)
     writer.add_scalar(prefix+'/std('+args.metric+')', np.std(scores), epoch)
 
-    return np.mean(losses), scores
+    return np.mean(losses), scores, acc, average_precision, f1_micro, f1_macro
 
 
 def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=None):
@@ -326,11 +330,10 @@ def main(args):
         stock2stock_matrix = torch.Tensor(stock2stock_matrix).to(device)
         num_relation = stock2stock_matrix.shape[2]
 
+    all_acc = []
+    all_macrof1 = []
     all_precision = []
-    all_recall = []
-    all_ic = []
-    all_rank_ic = []
-    all_ndcg = []
+    all_microf1 = []
     for times in range(args.repeat):
         pprint('create model...')
         if args.model_name == 'SFM':
@@ -375,15 +378,26 @@ def main(args):
 
             pprint('evaluating...')
             # compute the loss, score, pre, recall, ic, rank_ic on train, valid and test data
-            train_loss, train_score = test_epoch(epoch, model, train_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Train')
-            val_loss, val_score = test_epoch(epoch, model, valid_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Valid')
-            test_loss, test_score = test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Test')
+            train_loss, train_score, train_acc, train_avg_precision, train_f1_micro, train_f1_macro = \
+                test_epoch(epoch, model, train_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Train')
+            val_loss, val_score, val_acc, val_avg_precision, val_f1_micro, val_f1_macro = \
+                test_epoch(epoch, model, valid_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Valid')
+            test_loss, test_score, test_acc, test_avg_precision, test_f1_micro, test_f1_macro = \
+                test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Test')
 
             pprint('train_loss %.6f, valid_loss %.6f, test_loss %.6f'%(train_loss, val_loss, test_loss))
             # score equals to ic here
             # pprint('train_score %.6f, valid_score %.6f, test_score %.6f'%(train_score, val_score, test_score))
-            # pprint('train_mse %.6f, valid_mse %.6f, test_mse %.6f'%(train_mse, val_mse, test_mse))
-            # pprint('train_mae %.6f, valid_mae %.6f, test_mae %.6f'%(train_mae, val_mae, test_mae))
+            pprint('train_acc %.6f, valid_acc %.6f, test_acc %.6f'%(train_acc, val_acc, test_acc))
+            pprint('train_avg_precision %.6f, valid_avg_precision %.6f, test_avg_precision %.6f'%(train_avg_precision,
+                                                                                                  val_avg_precision,
+                                                                                                  test_avg_precision))
+            pprint('train_macro_f1 %.6f, valid_macro_f1 %.6f, test_macro_f1 %.6f' % (train_f1_macro,
+                                                                                     val_f1_macro,
+                                                                                     test_f1_macro))
+            pprint('train_micro_f1 %.6f, valid_micro_f1 %.6f, test_micro_f1 %.6f' % (train_f1_micro,
+                                                                                     val_f1_micro,
+                                                                                     test_f1_micro))
             # load back the current parameters
             model.load_state_dict(params_ckpt)
 
@@ -410,8 +424,23 @@ def main(args):
             # do prediction on train, valid and test data
             pred = inference(model, eval(name+'_loader'), stock2concept_matrix=stock2concept_matrix,
                             stock2stock_matrix=stock2stock_matrix)
-            # save the pkl every repeat time
+            acc, average_precision, f1_micro, f1_macro = evaluate_mc(pred)
+            pprint(name, ': Accuracy ', acc)
+            pprint(name, ': Avg Precision ', average_precision)
+            pprint(name, ':Micro F1', f1_micro)
+            pprint(name, ':Macro F1', f1_macro)
+
+            res[name+'-ACC'] = acc
+            res[name + '-Avg Precision'] = average_precision
+            res[name + '-Micro F1'] = f1_micro
+            res[name + '-Macro F1'] = f1_macro
+
             # pred.to_pickle(output_path+'/pred.pkl.'+name+str(times))
+        all_acc.append(acc)
+
+        all_macrof1.append(f1_macro)
+        all_microf1.append(f1_micro)
+        all_precision.append(average_precision)
 
         pprint('save info...')
         writer.add_hparams(
@@ -430,6 +459,10 @@ def main(args):
         default = lambda x: str(x)[:10] if isinstance(x, pd.Timestamp) else x
         with open(output_path+'/info.json', 'w') as f:
             json.dump(info, f, default=default, indent=4)
+    pprint('Accuracy: %.4f (%.4f)' % (np.array(all_acc).mean(), np.array(all_acc).std()))
+    pprint('F1 Macro: %.4f (%.4f)' % (np.array(all_macrof1).mean(), np.array(all_macrof1).std()))
+    pprint('F1 Micro: %.4f (%.4f)' % (np.array(all_microf1).mean(), np.array(all_microf1).std()))
+    pprint('Avg Precision: %.4f (%.4f)' % (np.array(all_precision).mean(), np.array(all_precision).std()))
 
     pprint('finished.')
 
@@ -452,7 +485,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # model
-    parser.add_argument('--model_name', default='HIST')
+    parser.add_argument('--model_name', default='PatchTST')
     parser.add_argument('--d_feat', type=int, default=6)
     parser.add_argument('--hidden_size', type=int, default=128)
     parser.add_argument('--num_layers', type=int, default=2)
@@ -462,7 +495,7 @@ def parse_args():
     parser.add_argument('--num_class', default=4, help='the number of class of stock sequence')
 
     # for ts lib model
-    parser.add_argument('--task_name', type=str, default='regression', help='task setup')
+    parser.add_argument('--task_name', type=str, default='multi-class', help='task setup')
     parser.add_argument('--seq_len', type=int, default=60)
     parser.add_argument('--moving_avg', type=int, default=21)
     parser.add_argument('--output_attention', action='store_true', help='whether to output attention in ecoder')
@@ -487,7 +520,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=2e-4)
     parser.add_argument('--early_stop', type=int, default=30)
     parser.add_argument('--smooth_steps', type=int, default=5)
-    parser.add_argument('--metric', default='IC')
+    parser.add_argument('--metric', default='negative cross entropy')
     # parser.add_argument('--loss', default='mse')
     parser.add_argument('--repeat', type=int, default=10)
 
@@ -499,24 +532,24 @@ def parse_args():
     parser.add_argument('--least_samples_num', type=float, default=1137.0) 
     parser.add_argument('--label', default='')  # specify other labels
     parser.add_argument('--train_start_date', default='2008-01-01')
-    parser.add_argument('--train_end_date', default='2016-12-31')
-    parser.add_argument('--valid_start_date', default='2017-01-01')
-    parser.add_argument('--valid_end_date', default='2019-12-31')
-    parser.add_argument('--test_start_date', default='2020-01-01')
+    parser.add_argument('--train_end_date', default='2018-12-31')
+    parser.add_argument('--valid_start_date', default='2019-01-01')
+    parser.add_argument('--valid_end_date', default='2020-12-31')
+    parser.add_argument('--test_start_date', default='2021-01-01')
     parser.add_argument('--test_end_date', default='2022-12-31')
 
     # other
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--annot', default='')
     parser.add_argument('--config', action=ParseConfigFile, default='')
-    parser.add_argument('--name', type=str, default='HIST')
+    parser.add_argument('--name', type=str, default='PatchTST')
 
     # input for csi 300
     parser.add_argument('--market_value_path', default='./data/csi300_market_value_07to22.pkl')
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
     parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/csi300_t+1/csi300_ts_HIST_latest')
+    parser.add_argument('--outdir', default='./output/mc/PatchTST')
     parser.add_argument('--overwrite', action='store_true', default=False)
     parser.add_argument('--device', default='cuda:1')
     args = parser.parse_args()

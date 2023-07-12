@@ -1,7 +1,7 @@
 import torch
 import pandas as pd
 import numpy as np
-from sklearn.metrics import ndcg_score
+from sklearn.metrics import ndcg_score, accuracy_score, precision_score, f1_score, recall_score, roc_auc_score
 from torchmetrics import RetrievalNormalizedDCG
 
 
@@ -194,22 +194,36 @@ def cross_entropy(pred, label):
     """
     ce_loss = torch.nn.CrossEntropyLoss()
     group = pred.shape[1]
-    mc_label = torch.zeros(label.shape[0], pred.shape[1])
+    mc_label = torch.zeros(label.shape[0], device=pred.device, dtype=torch.long)  # shape [B]
     for i in range(1, group):
-        indices = torch.topk(label,int(label.shape[0]*i/group)).indices
+        indices = torch.topk(label, int(label.shape[0]*i/group)).indices.to(device=pred.device)
         mc_label[indices] += 1
     return ce_loss(pred, mc_label)
 
 
-def generate_label(pred,label):
-    ce_loss = torch.nn.CrossEntropyLoss()
+def generate_label(pred, label):
     group = pred.shape[1]
-    mc_label = torch.zeros(label.shape[0], pred.shape[1])
+    mc_label = torch.zeros(label.shape[0], device=pred.device, dtype=torch.long)  # shape [B]
     for i in range(1, group):
         indices = torch.topk(label, int(label.shape[0]*i/group)).indices
         mc_label[indices] += 1  # shape B
     pred_label = torch.topk(pred, 1).indices.squeeze()  # shape B
     return pred_label, mc_label
+
+
+def evaluate_mc(preds):
+    # default precision setting is micro
+    acc = preds.groupby(level='datetime').apply(lambda x: accuracy_score(x['ground_truth'],x['pred'])).mean()
+    average_precision = preds.groupby(level='datetime')\
+        .apply(lambda x: precision_score(x['ground_truth'], x['pred'], average='micro')).mean()
+    f1_micro = preds.groupby(level='datetime').\
+        apply(lambda x: f1_score(x['ground_truth'], x['pred'], average='micro')).mean()
+    f1_macro = preds.groupby(level='datetime').\
+        apply(lambda x: f1_score(x['ground_truth'], x['pred'], average='macro')).mean()
+    # roc_auc = preds.groupby(level='datetime').\
+    #     apply(lambda x: roc_auc_score(x['ground_truth'], x['pred_array'], average='macro')).mean()
+
+    return acc, average_precision, f1_micro, f1_macro
 
 
 
