@@ -2,6 +2,7 @@ import datetime
 import sys
 sys.path.insert(0, sys.path[0]+"/../")
 from utils.dataloader import create_test_loaders
+from utils.utils import DotDict
 import numpy as np
 import pandas as pd
 import torch
@@ -66,6 +67,9 @@ def get_model(model_name):
     if model_name.upper() == 'RSR':
         return RSR
 
+    if model_name.upper() == 'PATCHTST':
+        return PatchTST
+
     raise ValueError('unknown model name `%s`' % model_name)
 
 
@@ -79,8 +83,10 @@ def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=
         with torch.no_grad():
             if model_name == 'HIST':
                 pred = model(feature, stock2concept_matrix[stock_index], market_value)
-            elif model_name == 'RSR':
+            elif model_name in relation_model_dict:
                 pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
+            elif model_name in time_series_library:
+                pred = model(feature, mask)
             else:
                 pred = model(feature)
             preds.append(
@@ -104,7 +110,7 @@ def _prediction(param_dict, test_loader, device):
                                            dropout_W=0.5, dropout_U=0.5, device=device)
     elif param_dict['model_name'] == 'ALSTM':
         model = get_model(param_dict['model_name'])(param_dict['d_feat'], param_dict['hidden_size'],
-                                                    param_dict['num_layers'], args.dropout, 'LSTM')
+                                                    param_dict['num_layers'], param_dict['dropout'], 'LSTM')
     elif param_dict['model_name'] == 'Transformer':
         model = get_model(param_dict['model_name'])(param_dict['d_feat'], param_dict['hidden_size'],
                                                     param_dict['num_layers'], dropout=0.5)
@@ -118,6 +124,8 @@ def _prediction(param_dict, test_loader, device):
         num_relation = stock2stock_matrix.shape[2]  # the number of relations
         model = get_model(param_dict['model_name'])(num_relation=num_relation, d_feat=param_dict['d_feat'],
                                                     num_layers=param_dict['num_layers'])
+    elif param_dict['model_name'] in time_series_library:
+        model = get_model(param_dict['model_name'])(DotDict(param_dict))
     else:
         model = get_model(param_dict['model_name'])(d_feat=param_dict['d_feat'], num_layers=param_dict['num_layers'])
     model.to(device)
@@ -151,8 +159,8 @@ def parse_args():
     parser.add_argument('--test_start_date', default='2022-06-01')
     parser.add_argument('--test_end_date', default='2023-06-01')
     parser.add_argument('--device', default='cuda:1')
-    parser.add_argument('--model_path', default='./output/csi300_MLP')
-    parser.add_argument('--pkl_path', default='./pred_output/csi_300_mlp.pkl',
+    parser.add_argument('--model_path', default='./output/for_webapp/LSTM')
+    parser.add_argument('--pkl_path', default='./pred_output/csi_300_lstm.pkl',
                         help='location to save the pred dictionary file')
     args = parser.parse_args()
     return args

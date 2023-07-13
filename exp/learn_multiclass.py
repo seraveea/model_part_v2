@@ -290,7 +290,7 @@ def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=
             preds.append(pd.DataFrame({'pred': pred_label.cpu().numpy(),
                                        'ground_truth': true_label.cpu().numpy(),}, index=index))
 
-    # preds = pd.concat(preds, axis=0)
+    preds = pd.concat(preds, axis=0)
     return preds
 
 
