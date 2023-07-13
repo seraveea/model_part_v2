@@ -1,6 +1,31 @@
 # Stock prediction module
 This repo is for K-Quant project, stock forecasting module.
-### ---------------------------------[Update] July 8th-------------------------------------------
+### ---------------------------------[Update] July 13th----------------------------------------
+Update pretrain models, now we support those following models in prediction mode:
+```commandline
+# No knowledge
+MLP
+GRU
+LSTM
+ALSTM
+SFM
+GATs
+PatchTST
+# Knowledge embed
+HIST
+RSR [is, hidy, hidy_is, dueefin_is, sht_is]
+# to save a prediction result:
+python exp/prediction.py --model_path './output/for_platform/RSR_hidy_is' --pkl_path './pred_output/csi_300_rsr_hidy_is.pkl'
+```
+## Attention:
+For knowledge empowered model, we only support use THE SAME file while you train the model
+
+So when it comes to dynamic knowledge, you need to update the knowledge file and cover the path in ```exp/prediction.py main()```
+
+For example, HIST needs up-to-date market value, and we use old one now which may could impact the model
+s performance.
+
+### ---------------------------------[Update] July 8th-----------------------------------------
 We rewrite prediction.py and re-structure the pipeline;
 
 Now you can try the mlp model in this pipeline, from training to predicting;
