@@ -3,6 +3,7 @@ from torch import nn
 from .layers.Transformer_EncDec import Encoder, EncoderLayer
 from .layers.SelfAttention_Family import FullAttention, AttentionLayer
 from .layers.Embed import PatchEmbedding
+from .layers.RevIN import RevIN
 
 'From Time Series Library, enc_in is equal to d_feat, d_model is another value, like hidden_size'
 
@@ -38,6 +39,10 @@ class Model(nn.Module):
         self.task_name = configs.task_name
         self.pred_len = configs.pred_len
         self.de_norm = configs.de_norm
+
+        self.revin = configs.revin
+        if self.revin:
+            self.revin_layer = RevIN(configs.d_feat, affine=configs.affine, subtract_last=configs.subtract_last)
         padding = stride
 
         # patching and embedding
@@ -79,12 +84,15 @@ class Model(nn.Module):
     def forecast(self, x_enc):
         # Normalization from Non-stationary Transformer
         x_enc = x_enc.reshape(len(x_enc), self.d_feat, -1)  # [N, F, T]
-        x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
-        means = x_enc.mean(1, keepdim=True).detach()
-        x_enc = x_enc - means
-        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
-        x_enc /= stdev
-
+        if self.revin:
+            x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
+            x_enc = self.revin_layer(x_enc, 'norm')
+        else:
+            x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
+            means = x_enc.mean(1, keepdim=True).detach()
+            x_enc = x_enc - means
+            stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+            x_enc /= stdev
 
         # do patching and embedding
         x_enc = x_enc.permute(0, 2, 1)  # [bs, d_feat, seq_len]
@@ -102,10 +110,13 @@ class Model(nn.Module):
 
         # Decoder
         dec_out = self.head(enc_out)  # z: [bs x nvars x target_window]
-        dec_out = dec_out.permute(0, 2, 1)
+        dec_out = dec_out.permute(0, 2, 1)  # dec_out [N, T, F]
 
         # De-Normalization from Non-stationary Transformer
-        if self.de_norm:
+        if self.revin:
+            dec_out = self.revin_layer(dec_out, 'denorm')
+            return dec_out
+        elif self.de_norm:
             dec_out = dec_out * \
                     (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
             dec_out = dec_out + \
@@ -117,43 +128,56 @@ class Model(nn.Module):
     def regression(self, x_enc, x_mark_enc):
         # Normalization from Non-stationary Transformer
         x_enc = x_enc.reshape(len(x_enc), self.d_feat, -1)  # [N, F, T]
-        x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
-        x_mark_enc = x_mark_enc.reshape(len(x_mark_enc), self.d_feat, -1)
-        x_mark_enc = x_mark_enc.permute(0, 2, 1)
-        means = x_enc.mean(1, keepdim=True).detach()
-        x_enc = x_enc - means
-        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
-        x_enc /= stdev
+        if self.revin:
+            x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
+            x_enc = self.revin_layer(x_enc, 'norm')
+        else:
+            x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
+            x_mark_enc = x_mark_enc.reshape(len(x_mark_enc), self.d_feat, -1)
+            x_mark_enc = x_mark_enc.permute(0, 2, 1)
+            means = x_enc.mean(1, keepdim=True).detach()
+            x_enc = x_enc - means
+            stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+            x_enc /= stdev
+
         # do patching and embedding
         x_enc = x_enc.permute(0, 2, 1)  # [batch_num, d_feat, seq_len]
         # u: [bs * nvars x patch_num x d_model] / [batch_num*(seq_len/batch_num), batch_num, d_feat]
         enc_out, n_vars = self.patch_embedding(x_enc)
         # Encoder
         # z: [bs * nvars x patch_num x d_model]
+        # the encoder part won't change the shape of enc_out no matter how many layer we use
         enc_out, attns = self.encoder(enc_out)
         # z: [bs x nvars x patch_num x d_model]
-        enc_out = torch.reshape(
-            enc_out, (-1, n_vars, enc_out.shape[-2], enc_out.shape[-1]))
+        enc_out = torch.reshape(enc_out, (-1, n_vars, enc_out.shape[-2], enc_out.shape[-1]))
         # z: [bs x nvars x d_model x patch_num]
         enc_out = enc_out.permute(0, 1, 3, 2)
+
+        if self.revin:
+            enc_out = enc_out.permute(0, 1, 3, 2)
+            enc_out = torch.reshape(enc_out, (enc_out.shape[0], -1, enc_out.shape[-1]))
+            enc_out = self.revin_layer(enc_out, 'denorm')
 
         # Decoder
         output = self.flatten(enc_out)
         output = self.dropout(output)
         output = output.reshape(output.shape[0], -1)
-        output = self.projection(output)  # (batch_size, num_classes)
+        output = self.projection(output)
         return output
 
     def classification(self, x_enc, x_mark_enc):
         x_enc = x_enc.reshape(len(x_enc), self.d_feat, -1)  # [N, F, T]
-        x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
-        x_mark_enc = x_mark_enc.reshape(len(x_mark_enc), self.d_feat, -1)
-        x_mark_enc = x_mark_enc.permute(0, 2, 1)
-        means = x_enc.mean(1, keepdim=True).detach()
-        x_enc = x_enc - means
-        stdev = torch.sqrt(
-            torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
-        x_enc /= stdev
+        if self.revin:
+            x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
+            x_enc = self.revin_layer(x_enc, 'norm')
+        else:
+            x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
+            x_mark_enc = x_mark_enc.reshape(len(x_mark_enc), self.d_feat, -1)
+            x_mark_enc = x_mark_enc.permute(0, 2, 1)
+            means = x_enc.mean(1, keepdim=True).detach()
+            x_enc = x_enc - means
+            stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+            x_enc /= stdev
 
         # do patching and embedding
         x_enc = x_enc.permute(0, 2, 1)
@@ -168,6 +192,11 @@ class Model(nn.Module):
             enc_out, (-1, n_vars, enc_out.shape[-2], enc_out.shape[-1]))
         # z: [bs x nvars x d_model x patch_num]
         enc_out = enc_out.permute(0, 1, 3, 2)
+
+        if self.revin:
+            enc_out = enc_out.permute(0, 1, 3, 2)
+            enc_out = torch.reshape(enc_out, (enc_out.shape[0], -1, enc_out.shape[-1]))
+            enc_out = self.revin_layer(enc_out, 'denorm')
 
         # Decoder
         output = self.flatten(enc_out)

@@ -492,7 +492,7 @@ def parse_args():
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--K', type=int, default=1)
     parser.add_argument('--loss_type', default='')
-    parser.add_argument('--num_class', default=4, help='the number of class of stock sequence')
+    parser.add_argument('--num_class', default=2, help='the number of class of stock sequence')
 
     # for ts lib model
     parser.add_argument('--task_name', type=str, default='multi-class', help='task setup')
@@ -515,10 +515,16 @@ def parse_args():
     parser.add_argument('--pred_len', type=int, default=-1, help='the length of pred squence, in regression set to -1')
     parser.add_argument('--de_norm', default=True, help='de normalize or not')
 
+    # for REVin normalize
+    parser.add_argument('--revin', default=True, help='use RevIn or not')
+    parser.add_argument('--affine', default=True, help='use learnable parameters or not in RevIn')
+    parser.add_argument('--subtract_last', default=False, help='subtract_last or not in RevIn')
+
+
     # training
-    parser.add_argument('--n_epochs', type=int, default=100)
+    parser.add_argument('--n_epochs', type=int, default=200)
     parser.add_argument('--lr', type=float, default=2e-4)
-    parser.add_argument('--early_stop', type=int, default=30)
+    parser.add_argument('--early_stop', type=int, default=100)
     parser.add_argument('--smooth_steps', type=int, default=5)
     parser.add_argument('--metric', default='negative cross entropy')
     # parser.add_argument('--loss', default='mse')
@@ -549,9 +555,9 @@ def parse_args():
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
     parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/mc/PatchTST')
+    parser.add_argument('--outdir', default='./output/mc/PatchTST_2class_revin')
     parser.add_argument('--overwrite', action='store_true', default=False)
-    parser.add_argument('--device', default='cuda:1')
+    parser.add_argument('--device', default='cuda:2')
     args = parser.parse_args()
 
     return args
