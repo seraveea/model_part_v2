@@ -90,7 +90,7 @@ def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=
             else:
                 pred = model(feature)
             preds.append(
-                pd.DataFrame({'pred_score': pred.cpu().numpy(), 'label': label.cpu().numpy(), }, index=index))
+                pd.DataFrame({model_name + '_score': pred.cpu().numpy(), 'label': label.cpu().numpy(), }, index=index))
 
     preds = pd.concat(preds, axis=0)
     return preds
@@ -139,21 +139,40 @@ def _prediction(param_dict, test_loader, device):
     return pred
 
 
-def prediction(args, model_path, device):
-    param_dict = json.load(open(model_path+'/info.json'))['config']
-    param_dict['model_dir'] = model_path
-    if args.incremental_mode:
-        param_dict['incre_model_path'] = args.incre_model_path
-    else:
-        param_dict['incre_model_path'] = None
-    test_loader = create_test_loaders(args, param_dict, device=device)
-    pred = _prediction(param_dict, test_loader, device)
-    return pred
+def batch_prediction(args, model_pool, device):
+    initial_param = json.load(open(args.prefix+model_pool[0]+'/info.json'))['config']
+    test_loader = create_test_loaders(args, initial_param, device=device)
+    output_group = []
+    for i in model_pool:
+        model_path = args.prefix+i
+        param_dict = json.load(open(model_path+'/info.json'))['config']
+        param_dict['model_dir'] = model_path
+        if args.incremental_mode:
+            param_dict['incre_model_path'] = args.incre_model_path+i
+        else:
+            param_dict['incre_model_path'] = None
+        pred = _prediction(param_dict, test_loader, device)
+        output_group.append(pred)
+
+    data = pd.concat(output_group, axis=1)
+    data = data.loc[:, ~data.columns.duplicated()].copy()
+    return data
+
+
+def average_blend(data, model_pool):
+    model_score = [i+'_score' for i in model_pool]
+    data['average_score'] = data[model_score].mean(axis=1)
+    # for blend, we need to split it to train set and test set, run linear regression to learn weight
+    # and test the performance on test set
+    return data
 
 
 def main(args, device):
-    model_path = args.model_path
-    pd.to_pickle(prediction(args, model_path, device), args.pkl_path)
+    model_pool = ['GRU', 'LSTM', 'GATs', 'MLP']
+    output = batch_prediction(args, model_pool, device)
+    output = average_blend(output,model_pool)
+
+    print(output.head())
 
 
 def parse_args():
@@ -168,10 +187,9 @@ def parse_args():
     parser.add_argument('--test_end_date', default='2023-06-01')
     parser.add_argument('--device', default='cuda:1')
     parser.add_argument('--incremental_mode', default=False, help='load incremental updated models or not')
-    parser.add_argument('--incre_model_path', default='./output/for_platform/INCRE/LSTM')
-    parser.add_argument('--model_path', default='./output/for_platform/LSTM')
-    parser.add_argument('--pkl_path', default='./pred_output/csi_300_lstm.pkl',
-                        help='location to save the pred dictionary file')
+    parser.add_argument('--prefix', default='output/for_platform/')
+    parser.add_argument('--incre_prefix', default='output/for_platform/INCRE/')
+
     args = parser.parse_args()
     return args
 
