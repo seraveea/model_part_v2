@@ -498,7 +498,7 @@ def parse_args():
     parser.add_argument('--task_name', type=str, default='multi-class', help='task setup')
     parser.add_argument('--seq_len', type=int, default=60)
     parser.add_argument('--moving_avg', type=int, default=21)
-    parser.add_argument('--output_attention', action='store_true', help='whether to output attention in ecoder')
+    parser.add_argument('--output_attention', action='store_true', help='whether to output attention in encoder')
     parser.add_argument('--embed', type=str, default='timeF',
                         help='time features encoding, options:[timeF, fixed, learned]')
     parser.add_argument('--freq', type=str, default='b',
@@ -510,13 +510,13 @@ def parse_args():
     parser.add_argument('--n_heads', type=int, default=1, help='num of heads')
     parser.add_argument('--d_ff', type=int, default=64, help='dimension of fcn')
     parser.add_argument('--activation', type=str, default='gelu', help='activation')
-    parser.add_argument('--e_layers', type=int, default=8, help='num of encoder layers')
+    parser.add_argument('--e_layers', type=int, default=2, help='num of encoder layers')
     parser.add_argument('--top_k', type=int, default=5, help='for TimesBlock')
     parser.add_argument('--pred_len', type=int, default=-1, help='the length of pred squence, in regression set to -1')
     parser.add_argument('--de_norm', default=True, help='de normalize or not')
 
     # for REVin normalize
-    parser.add_argument('--revin', default=True, help='use RevIn or not')
+    parser.add_argument('--revin', default=False, help='use RevIn or not')
     parser.add_argument('--affine', default=True, help='use learnable parameters or not in RevIn')
     parser.add_argument('--subtract_last', default=False, help='subtract_last or not in RevIn')
 
@@ -525,7 +525,7 @@ def parse_args():
     parser.add_argument('--n_epochs', type=int, default=200)
     parser.add_argument('--lr', type=float, default=2e-4)
     parser.add_argument('--early_stop', type=int, default=100)
-    parser.add_argument('--smooth_steps', type=int, default=5)
+    parser.add_argument('--smooth_steps', type=int, default=1)
     parser.add_argument('--metric', default='negative cross entropy')
     # parser.add_argument('--loss', default='mse')
     parser.add_argument('--repeat', type=int, default=10)
@@ -555,7 +555,7 @@ def parse_args():
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
     parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/mc/PatchTST_2class_revin')
+    parser.add_argument('--outdir', default='./output/mc/PatchTST_2class_2layer')
     parser.add_argument('--overwrite', action='store_true', default=False)
     parser.add_argument('--device', default='cuda:2')
     args = parser.parse_args()

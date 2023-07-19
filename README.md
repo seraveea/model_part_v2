@@ -1,5 +1,11 @@
 # Stock prediction module
 This repo is for K-Quant project, stock forecasting module.
+### ---------------------------------[Update] July 19th----------------------------------------
+Add incremental learning module. Run
+```commandline
+python exp/learn_incre.py
+```
+Then your model file will be stored in the folder you choose.
 ### ---------------------------------[Update] July 13th----------------------------------------
 Update pretrain models, now we support those following models in prediction mode:
 ```commandline

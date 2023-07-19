@@ -416,3 +416,123 @@ def create_test_loaders(args, param_dict,device):
     test_loader = DataLoader(df_test["feature"], df_test["label"], df_test['market_value'], df_test['stock_index'],
                              pin_memory=True, start_index=start_index, device=device)
     return test_loader
+
+
+def create_incre_loaders(args, param_dict, device):
+    """
+    load qlib alpha360 data and split into train, validation and test loader
+    :param args:
+    :return:
+    """
+    start_time = datetime.datetime.strptime(args.incre_start_date, '%Y-%m-%d')
+    end_time = datetime.datetime.strptime(args.incre_end_date, '%Y-%m-%d')
+    start_date = args.incre_start_date
+    end_date = args.incre_end_date
+    incre_end_time = datetime.datetime.strptime(args.incre_end_date, '%Y-%m-%d')
+    if param_dict['target'] == 't+0':
+        hanlder = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
+                   'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
+                              'fit_end_time': end_time, 'instruments': param_dict['data_set'], 'infer_processors': [
+                           {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
+                           {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
+                              'learn_processors': [{'class': 'DropnaLabel'},
+                                                   {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
+                              'label': ['Ref($close, -1) / $close - 1']}}
+    else:
+        handler = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
+                'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
+                            'fit_end_time': incre_end_time, 'instruments': param_dict['data_set'], 'infer_processors': [
+                        {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
+                        {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
+                            'learn_processors': [{'class': 'DropnaLabel'},
+                                                {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
+                            'label': ['Ref($close, -2) / Ref($close, -1) - 1']}}
+
+    segments = {'incre': (args.incre_start_date, args.incre_end_date)}
+    # get dataset from qlib
+    dataset = DatasetH(handler, segments)
+
+    df_incre = dataset.prepare(["incre"], col_set=["feature", "label"], data_key=DataHandlerLP.DK_L, )[0]
+
+    import pickle
+    # only HIST need this
+    with open(param_dict['market_value_path'], "rb") as fh:
+        # load market value
+        df_market_value = pickle.load(fh)
+        # the df_market_value save
+    df_market_value = df_market_value / 1000000000
+    stock_index = np.load(param_dict['stock_index'], allow_pickle=True).item()
+    # stock_index is a dict and stock is the key, index is the value
+    start_index = 0
+
+    slc = slice(pd.Timestamp(start_date), pd.Timestamp(end_date))
+    df_incre['market_value'] = df_market_value[slc]
+    df_incre['market_value'] = df_incre['market_value'].fillna(df_incre['market_value'].mean())
+    df_incre['stock_index'] = 733
+    df_incre['stock_index'] = df_incre.index.get_level_values('instrument').map(stock_index).fillna(733).astype(int)
+    start_index += len(df_incre.groupby(level=0).size())
+
+    incre_loader = DataLoader(df_incre["feature"], df_incre["label"], df_incre['market_value'], df_incre['stock_index'],
+                              batch_size=param_dict['batch_size'], pin_memory=param_dict['pin_memory'], start_index=start_index, device=device)
+    return incre_loader
+
+
+def create_incre_pre_loaders(args, param_dict, device):
+    """
+    load qlib alpha360 data and split into train, validation and test loader
+    :param args:
+    :return:
+    """
+    start_time = datetime.datetime.strptime(param_dict['train_start_date'], '%Y-%m-%d')
+    end_time = datetime.datetime.strptime(param_dict['train_end_date'], '%Y-%m-%d')
+    start_date = param_dict['train_start_date']
+    end_date = param_dict['train_end_date']
+
+
+    if param_dict['target'] == 't+0':
+        hanlder = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
+                   'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
+                              'fit_end_time': end_time, 'instruments': param_dict['data_set'], 'infer_processors': [
+                           {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
+                           {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
+                              'learn_processors': [{'class': 'DropnaLabel'},
+                                                   {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
+                              'label': ['Ref($close, -1) / $close - 1']}}
+
+    else:
+        handler = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
+                'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
+                            'fit_end_time': end_time, 'instruments': param_dict['data_set'], 'infer_processors': [
+                        {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
+                        {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
+                            'learn_processors': [{'class': 'DropnaLabel'},
+                                                {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
+                            'label': ['Ref($close, -2) / Ref($close, -1) - 1']}}
+
+    segments = {'incre': (start_date, end_date)}
+    # get dataset from qlib
+    dataset = DatasetH(handler, segments)
+
+    df_incre = dataset.prepare(["incre"], col_set=["feature", "label"], data_key=DataHandlerLP.DK_L, )[0]
+
+    import pickle
+    # only HIST need this
+    with open(param_dict['market_value_path'], "rb") as fh:
+        # load market value
+        df_market_value = pickle.load(fh)
+        # the df_market_value save
+    df_market_value = df_market_value / 1000000000
+    stock_index = np.load(param_dict['stock_index'], allow_pickle=True).item()
+    # stock_index is a dict and stock is the key, index is the value
+    start_index = 0
+
+    slc = slice(pd.Timestamp(start_date), pd.Timestamp(end_date))
+    df_incre['market_value'] = df_market_value[slc]
+    df_incre['market_value'] = df_incre['market_value'].fillna(df_incre['market_value'].mean())
+    df_incre['stock_index'] = 733
+    df_incre['stock_index'] = df_incre.index.get_level_values('instrument').map(stock_index).fillna(733).astype(int)
+    start_index += len(df_incre.groupby(level=0).size())
+
+    incre_pre_loader = DataLoader(df_incre["feature"], df_incre["label"], df_incre['market_value'], df_incre['stock_index'],
+                              batch_size=param_dict['batch_size'], pin_memory=param_dict['pin_memory'], start_index=start_index, device=device)
+    return incre_pre_loader

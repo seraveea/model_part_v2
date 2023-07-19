@@ -159,7 +159,7 @@ def parse_args():
     parser.add_argument('--test_start_date', default='2022-06-01')
     parser.add_argument('--test_end_date', default='2023-06-01')
     parser.add_argument('--device', default='cuda:1')
-    parser.add_argument('--model_path', default='./output/for_webapp/LSTM')
+    parser.add_argument('--model_path', default='./output/for_platform/LSTM')
     parser.add_argument('--pkl_path', default='./pred_output/csi_300_lstm.pkl',
                         help='location to save the pred dictionary file')
     args = parser.parse_args()

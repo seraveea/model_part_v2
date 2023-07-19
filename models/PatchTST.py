@@ -109,7 +109,7 @@ class Model(nn.Module):
         enc_out = enc_out.permute(0, 1, 3, 2)
 
         # Decoder
-        dec_out = self.head(enc_out)  # z: [bs x nvars x target_window]
+        dec_out = self.head(enc_out)  # z: [N, F, T]
         dec_out = dec_out.permute(0, 2, 1)  # dec_out [N, T, F]
 
         # De-Normalization from Non-stationary Transformer
@@ -171,6 +171,7 @@ class Model(nn.Module):
             x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
             x_enc = self.revin_layer(x_enc, 'norm')
         else:
+            # not do the normalization while classification
             x_enc = x_enc.permute(0, 2, 1)  # [N, T, F]
             x_mark_enc = x_mark_enc.reshape(len(x_mark_enc), self.d_feat, -1)
             x_mark_enc = x_mark_enc.permute(0, 2, 1)
@@ -180,23 +181,24 @@ class Model(nn.Module):
             x_enc /= stdev
 
         # do patching and embedding
-        x_enc = x_enc.permute(0, 2, 1)
+        x_enc = x_enc.permute(0, 2, 1)  # batch_size, d_feat, seq_len
         # u: [bs * nvars x patch_num x d_model]
-        enc_out, n_vars = self.patch_embedding(x_enc)
+        enc_out, n_vars = self.patch_embedding(x_enc)  # [batch_size*d_feat, patch_num, hidden_size]
 
         # Encoder
-        # z: [bs * nvars x patch_num x d_model]
-        enc_out, attns = self.encoder(enc_out)
-        # z: [bs x nvars x patch_num x d_model]
+        # [batch_size*d_feat, patch_num, hidden_size]
+        enc_out, attns = self.encoder(enc_out)  # encoder never change the dim of enc_out
+        # [batch_size， d_feat, patch_num, hidden_size]
         enc_out = torch.reshape(
             enc_out, (-1, n_vars, enc_out.shape[-2], enc_out.shape[-1]))
-        # z: [bs x nvars x d_model x patch_num]
-        enc_out = enc_out.permute(0, 1, 3, 2)
+        enc_out = enc_out.permute(0, 1, 3, 2)  # z: [bs x d_feat x hidden_size x patch_num]
 
-        if self.revin:
-            enc_out = enc_out.permute(0, 1, 3, 2)
-            enc_out = torch.reshape(enc_out, (enc_out.shape[0], -1, enc_out.shape[-1]))
-            enc_out = self.revin_layer(enc_out, 'denorm')
+        # classification task not need to do denormalize since we don't need forecasting series
+        # if self.revin:
+        #     # revin used in long-term-forecasting, but here we use in multi-class to try to avoid distribution shift
+        #     enc_out = enc_out.permute(0, 2, 3, 1)  # [bs, hidden_size, patch_num, d_feat]
+        #     enc_out = torch.reshape(enc_out, (enc_out.shape[0], -1, enc_out.shape[-1]))
+        #     enc_out = self.revin_layer(enc_out, 'denorm')
 
         # Decoder
         output = self.flatten(enc_out)
