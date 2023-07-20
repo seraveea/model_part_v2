@@ -84,7 +84,8 @@ class HIST(nn.Module):
         # F = feature length
         # T = number of days, usually = 60, since F*T should be 360
         # x is the feature of all stocks in one day
-        device = torch.device(torch.get_device(x))
+        # device = torch.device(torch.get_device(x))
+        device = x.device
         x_hidden = x.reshape(len(x), self.d_feat, -1)  # [N, F, T]
         x_hidden = x_hidden.permute(0, 2, 1)  # [N, T, F]
         x_hidden, _ = self.rnn(x_hidden)

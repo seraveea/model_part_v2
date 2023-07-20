@@ -19,7 +19,7 @@ from models.FiLM import Model as FiLM
 from models.Informer import Model as Informer
 from models.PatchTST import Model as PatchTST
 import json
-
+from sklearn.linear_model import LinearRegression
 
 time_series_library = [
     'DLinear',
@@ -71,6 +71,27 @@ def get_model(model_name):
         return PatchTST
 
     raise ValueError('unknown model name `%s`' % model_name)
+
+
+def metric_fn(preds, score='score'):
+    preds = preds[~np.isnan(preds['label'])]
+    precision = {}
+    recall = {}
+    temp = preds.groupby(level='datetime').apply(lambda x: x.sort_values(by=score, ascending=False))
+    if len(temp.index[0]) > 2:
+        temp = temp.reset_index(level=0).drop('datetime', axis=1)
+
+    for k in [1, 3, 5, 10, 20, 30, 50, 100]:
+        precision[k] = temp.groupby(level='datetime').apply(lambda x: (x.label[:k] > 0).sum() / k).mean()
+        recall[k] = temp.groupby(level='datetime').apply(lambda x: (x.label[:k] > 0).sum() / (x.label > 0).sum()).mean()
+
+    # mse = mean_squared_error(preds[['label']].values.tolist(),preds[[score]].values.tolist())
+    ic = preds.groupby(level='datetime').apply(lambda x: x.label.corr(x[score])).mean()
+    rank_ic = preds.groupby(level='datetime').apply(lambda x: x.label.corr(x[score], method='spearman')).mean()
+    icir = ic/preds.groupby(level='datetime').apply(lambda x: x.label.corr(x[score])).std()
+    rank_icir = rank_ic/preds.groupby(level='datetime').apply(lambda x: x.label.corr(x[score], method='spearman')).std()
+
+    return precision, recall, ic, rank_ic, icir, rank_icir
 
 
 def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=None, model_name=''):
@@ -159,20 +180,111 @@ def batch_prediction(args, model_pool, device):
     return data
 
 
-def average_blend(data, model_pool):
+def average_and_blend(args, data, model_pool):
     model_score = [i+'_score' for i in model_pool]
     data['average_score'] = data[model_score].mean(axis=1)
     # for blend, we need to split it to train set and test set, run linear regression to learn weight
     # and test the performance on test set
-    return data
+    btrain_slc = slice(pd.Timestamp(args.test_start_date), pd.Timestamp(args.blend_split_date))
+    btest_slc = slice(pd.Timestamp(args.blend_split_date), pd.Timestamp(args.test_end_date))
+    btrain_data = data[btrain_slc]
+    btest_data = data[btest_slc]
+    # --------train a linear model to learn the weight of each model--------------------
+    # here we split the dataset and only evaluate on the test_data
+    X = btrain_data[model_score].values.tolist()
+    y = btrain_data[['label']].values.tolist()
+    reg = LinearRegression().fit(X, y)
+    X_t = btest_data[model_score].values.tolist()
+    y_pred = reg.predict(X_t)
+    btest_data['blend_score'] = y_pred
+    report = pd.DataFrame()
+    for name in model_score+['average_score', 'blend_score']:
+        temp = dict()
+        temp['model'] = name
+        precision, recall, ic, rank_ic, icir, rank_icir = metric_fn(btest_data, score=name)
+        temp['P@3'] = precision[3]
+        temp['P@5'] = precision[5]
+        temp['P@10'] = precision[10]
+        temp['P@30'] = precision[30]
+        temp['IC'] = ic
+        temp['ICIR'] = icir
+        temp['RankIC'] = rank_ic
+        temp['RankICIR'] = rank_icir
+        report = report.append(temp, ignore_index=True)
+    return btest_data, report
+
+
+def find_time_interval(tset, time, df=None, lookback=5):
+    # return a dataframe that contains all stock's preidction score in the lookback days
+    # current day is not included
+    index = tset.index(time)
+    if index <= (lookback - 1):
+        # no enough history data
+        res_df = pd.DataFrame()
+        res_df = df.loc[tset[:index]]
+        return res_df
+    else:
+        res_df=pd.DataFrame()
+        time_interval = tset[index-lookback:index]
+        res_df = df.loc[time_interval]
+        return res_df
+
+
+def sim_linear(model_pool, data, lookback=90, eva_type='ic+rank_ic', select_num=3):
+    # this function is used to train a temp learner, that could generate a blend score for one day
+    # input should be score_pool, data, lookback
+    # output is a dataframe with new score from the temp learner
+    # 通过对每个模型在之前交易日内的表现筛选模型通过线性回归组合
+    score_pool = [i + '_score' for i in model_pool]
+    timeset = list(dict.fromkeys([x[0] for x in data.index.drop_duplicates().values.tolist()]))
+    for time in tqdm(timeset):
+        temp = find_time_interval(timeset, time, data, lookback)
+        if len(temp) > 0:
+            report = {}
+            for name in score_pool:
+                if eva_type == 'ic+rank_ic':
+                    precision, recall, ic, rank_ic, icir, rank_icir= metric_fn(temp, score=name)
+                    report[name] = ic + rank_ic
+                    # evaluate on lookback data
+            report = dict(sorted(report.items(), key=lambda item: item[1]))
+            ordered_model_list = list(report.keys())
+            # 经过大量训练后其实模型选择影响不大，绝大多数情况都会选择到某几个模型
+            if 0<select_num<=len(ordered_model_list):
+                cur_pool = ordered_model_list[len(ordered_model_list)-select_num:]
+            else:
+                print('the chosen number of model is not valid, select all models dy default')
+                cur_pool = ordered_model_list
+
+            x = temp[cur_pool].values.tolist()
+            y = temp[['label']].values.tolist()
+            model = LinearRegression().fit(x,y)
+            x_t = np.array(data.loc[time][cur_pool].values.tolist())
+            y_t = model.predict(x_t)
+            data.loc[time,'dynamic_ensemble_score']= y_t
+    report = pd.DataFrame()
+    for name in score_pool+['average_score', 'blend_score', 'dynamic_ensemble_score']:
+        temp = dict()
+        temp['model'] = name
+        precision, recall, ic, rank_ic, icir, rank_icir = metric_fn(data, score=name)
+        temp['P@3'] = precision[3]
+        temp['P@5'] = precision[5]
+        temp['P@10'] = precision[10]
+        temp['P@30'] = precision[30]
+        temp['IC'] = ic
+        temp['ICIR'] = icir
+        temp['RankIC'] = rank_ic
+        temp['RankICIR'] = rank_icir
+        report = report.append(temp, ignore_index=True)
+    return data.dropna(), report
 
 
 def main(args, device):
-    model_pool = ['GRU', 'LSTM', 'GATs', 'MLP']
+    model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'HIST']
     output = batch_prediction(args, model_pool, device)
-    output = average_blend(output,model_pool)
-
+    output, report = average_and_blend(args, output, model_pool)
+    output, report = sim_linear(model_pool, output, lookback=30)
     print(output.head())
+    print(report)
 
 
 def parse_args():
@@ -183,7 +295,8 @@ def parse_args():
     """
     parser = argparse.ArgumentParser()
     # data
-    parser.add_argument('--test_start_date', default='2022-06-01')
+    parser.add_argument('--test_start_date', default='2022-01-01')
+    parser.add_argument('--blend_split_date', default='2022-12-31')
     parser.add_argument('--test_end_date', default='2023-06-01')
     parser.add_argument('--device', default='cuda:1')
     parser.add_argument('--incremental_mode', default=False, help='load incremental updated models or not')
