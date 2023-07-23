@@ -30,7 +30,7 @@ from models.FiLM import Model as FiLM
 from models.Informer import Model as Informer
 from models.PatchTST import Model as PatchTST
 from utils.utils import metric_fn, mse, loss_ic, pair_wise_loss, NDCG_loss, ApproxNDCG_loss, cross_entropy, \
-    generate_label, evaluate_mc
+    generate_label, evaluate_mc, class_approxNDCG
 from utils.dataloader import create_loaders
 import warnings
 import logging
@@ -184,7 +184,7 @@ def train_epoch(epoch, model, optimizer, train_loader, writer, args,
         global_step += 1
         feature, label, market_value, stock_index, _, mask = train_loader.get(slc)
         # we get feature and label, pred in classification is a tensor, first
-        # 将其变为分类之后，给不同的类别不同的weight，算approxNDCG，如何回传梯度？
+        # 将其变为分类之后，给不同的类别不同的weight，算approxNDCG，如何回传梯度？ -- 可以使用软分类方法
         # 参考传统LTR数据的处理方法
         if args.model_name == 'HIST':
             # if HIST is used, take the stock2concept_matrix and market_value
@@ -200,8 +200,11 @@ def train_epoch(epoch, model, optimizer, train_loader, writer, args,
             # other model only use feature as input
             # for multi-class, here we get a [B, N]
             pred = model(feature)
+        if args.loss_type == 'cross_entropy':
+            loss = cross_entropy(pred, label)
+        else:
+            loss = class_approxNDCG(pred, label)
 
-        loss = cross_entropy(pred, label)
 
         optimizer.zero_grad()
         loss.backward()
@@ -237,7 +240,10 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
             else:
                 pred = model(feature)
 
-            loss = cross_entropy(pred, label)
+            if args.loss_type == 'cross_entropy':
+                loss = cross_entropy(pred, label)
+            else:
+                loss = class_approxNDCG(pred, label)
             pred_label, true_label = generate_label(pred, label)
             preds.append(pd.DataFrame({'pred': pred_label.cpu().numpy(),
                                        'ground_truth': true_label.cpu().numpy(),}, index=index))
@@ -491,7 +497,7 @@ def parse_args():
     parser.add_argument('--num_layers', type=int, default=2)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--K', type=int, default=1)
-    parser.add_argument('--loss_type', default='')
+    parser.add_argument('--loss_type', default='cross entropy')
     parser.add_argument('--num_class', default=2, help='the number of class of stock sequence')
 
     # for ts lib model
@@ -527,7 +533,7 @@ def parse_args():
     parser.add_argument('--early_stop', type=int, default=100)
     parser.add_argument('--smooth_steps', type=int, default=1)
     parser.add_argument('--metric', default='negative cross entropy')
-    # parser.add_argument('--loss', default='mse')
+    # parser.add_argument('--loss', default='cross entropy')
     parser.add_argument('--repeat', type=int, default=10)
 
     # data
@@ -537,7 +543,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=-1)  # -1 indicate daily batch
     parser.add_argument('--least_samples_num', type=float, default=1137.0) 
     parser.add_argument('--label', default='')  # specify other labels
-    parser.add_argument('--train_start_date', default='2008-01-01')
+    parser.add_argument('--train_start_date', default='2017-01-01')
     parser.add_argument('--train_end_date', default='2018-12-31')
     parser.add_argument('--valid_start_date', default='2019-01-01')
     parser.add_argument('--valid_end_date', default='2020-12-31')
@@ -555,7 +561,7 @@ def parse_args():
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
     parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/mc/PatchTST_2class_2layer')
+    parser.add_argument('--outdir', default='./output/mc/PatchTST_testNDCG')
     parser.add_argument('--overwrite', action='store_true', default=False)
     parser.add_argument('--device', default='cuda:2')
     args = parser.parse_args()

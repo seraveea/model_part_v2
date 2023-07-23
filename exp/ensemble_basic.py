@@ -7,8 +7,10 @@ import numpy as np
 import pandas as pd
 import torch
 import argparse
+import pickle
 from tqdm import tqdm
 from models.model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR, relation_GATs, relation_GATs_3heads
+from models.ensemble_model import ReweightModel, PerfomanceBasedModel
 from qlib.contrib.model.pytorch_transformer import Transformer
 from models.DLinear import DLinear_model
 from models.Autoformer import Model as autoformer
@@ -214,6 +216,45 @@ def average_and_blend(args, data, model_pool):
     return btest_data, report
 
 
+def sjtu_ensemble(args, data, model_pool):
+    np.random.seed(0)
+    model_score = [i+'_score' for i in model_pool]
+    btrain_slc = slice(pd.Timestamp(args.test_start_date), pd.Timestamp(args.blend_split_date))
+    btest_slc = slice(pd.Timestamp(args.blend_split_date), pd.Timestamp(args.test_end_date))
+    btrain_data = data[btrain_slc]
+    btest_data = data[btest_slc]
+    with open('output/ensemble_model/sjtumodel.pkl', 'rb') as f:
+        ensemble_model = pickle.load(f)
+    X = btrain_data[model_score].values
+    y = btrain_data[['label']].values
+    X_t = btest_data[model_score].values
+    y_t = btest_data[['label']].values
+    ensemble_model.train(X, y)
+    y_pred_no_retrain = ensemble_model(X_t)
+    y_pred_retrain = ensemble_model.predict(X, y, X_t, y_t,
+                                            retrain_interval=300, max_retrain_samples=-1, progress_bar=True)
+    btest_data['ensemble_retrain_score'] = y_pred_retrain
+    btest_data['ensemble_no_retrain_score'] = y_pred_no_retrain
+    pbm = PerfomanceBasedModel()
+    pbm.train(X, y)
+    btest_data['Perfomance_based_ensemble_score'] = pbm(X_t)
+    report = pd.DataFrame()
+    for name in model_score+['ensemble_retrain_score', 'ensemble_no_retrain_score', 'Perfomance_based_ensemble_score']:
+        temp = dict()
+        temp['model'] = name
+        precision, recall, ic, rank_ic, icir, rank_icir = metric_fn(btest_data, score=name)
+        temp['P@3'] = precision[3]
+        temp['P@5'] = precision[5]
+        temp['P@10'] = precision[10]
+        temp['P@30'] = precision[30]
+        temp['IC'] = ic
+        temp['ICIR'] = icir
+        temp['RankIC'] = rank_ic
+        temp['RankICIR'] = rank_icir
+        report = report.append(temp, ignore_index=True)
+    return btest_data, report
+
+
 def find_time_interval(tset, time, df=None, lookback=5):
     # return a dataframe that contains all stock's preidction score in the lookback days
     # current day is not included
@@ -281,8 +322,9 @@ def sim_linear(model_pool, data, lookback=90, eva_type='ic+rank_ic', select_num=
 def main(args, device):
     model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'HIST']
     output = batch_prediction(args, model_pool, device)
-    output, report = average_and_blend(args, output, model_pool)
-    output, report = sim_linear(model_pool, output, lookback=30)
+    # output, report = average_and_blend(args, output, model_pool)
+    # output, report = sim_linear(model_pool, output, lookback=30)
+    output, report = sjtu_ensemble(args, output, model_pool)
     print(output.head())
     print(report)
 

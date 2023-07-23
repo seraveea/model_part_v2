@@ -128,20 +128,27 @@ def approxNDCGLoss_cutk(y_pred, y_true, eps=1, alpha=1., k=20):
 
     # Here we sort the true and predicted relevancy scores.
     y_pred_sorted, indices_pred = y_pred.sort(descending=True, dim=-1)
+    print(y_pred_sorted.grad_fn)
     y_true_sorted, _ = y_true.sort(descending=True, dim=-1)
 
     # After sorting, we can mask out the pairs of indices (i, j) containing index of a padded element.
+    # 按照pred的顺序来排列
     true_sorted_by_preds = torch.gather(y_true, dim=0, index=indices_pred)
     # true_diffs = true_sorted_by_preds[:, :, None] - true_sorted_by_preds[:, None, :]
 
     # Here we clamp the -infs to get correct gains and ideal DCGs (maxDCGs)
     # just like relu, let all values that below 0 equal to 0
-    true_sorted_by_preds.clamp_(min=0.)
+    true_sorted_by_preds.clamp_(min=0.0000)
     y_true_sorted.clamp_(min=0.)
-
-    true_sort_by_preds_k = true_sorted_by_preds[:k]
-    y_pred_sorted_k = y_pred_sorted[:k]
-    y_true_sorted_k = y_true_sorted[:k]
+    if k == -1:
+        # not perform cut
+        true_sort_by_preds_k = true_sorted_by_preds
+        y_pred_sorted_k = y_pred_sorted
+        y_true_sorted_k = y_true_sorted
+    else:
+        true_sort_by_preds_k = true_sorted_by_preds[:k]
+        y_pred_sorted_k = y_pred_sorted[:k]
+        y_true_sorted_k = y_true_sorted[:k]
 
     # Here we find the gains, discounts and ideal DCGs per slate.
     pos_idxs = torch.arange(1, y_true_sorted_k.shape[0] + 1).to(device)
@@ -170,7 +177,7 @@ def ApproxNDCG_loss(pred, label, alpha=0.05, k=100):
     return point_wise + ndcg_part
 
 
-def Discrete_NDCG(pred, label):
+def softclass_NDCG(pred):
     """
     issues: if we use NDCG, get weight*prob, then most will drop into middle part, this is not helpful
             for example, with [3,2,1,0] related weights, we have two prob [0,0.5,0.5,0] and [0.5,0,0,0.5]
@@ -181,9 +188,10 @@ def Discrete_NDCG(pred, label):
     """
     m = torch.nn.Softmax(dim=1)
     pred_n = m(pred)  # [B,N]
-    default_weight = torch.Tensor([3, 2, 1, 0], device=pred_n.device)
-    x = torch.sum(pred_n*default_weight, dim=1)
-    return None
+    weights = [w for w in range(pred_n.shape[1])]
+    default_weight = torch.Tensor(weights, device=pred_n.device)
+    x = pred_n@default_weight
+    return x
 
 
 def cross_entropy(pred, label):
@@ -201,6 +209,22 @@ def cross_entropy(pred, label):
     return ce_loss(pred, mc_label)
 
 
+def class_approxNDCG(pred, label):
+    """
+    :param pred: the prediction result from model shape [B,N]
+    :param label: the label from dataset is the score, we will divide those score into 4 groups as their label
+    we do softmax on pred, then times the [3,2,1,0] matrix to get the final weights, the label weights are from
+    0 to 3, and compute the approxNDCG
+    """
+    soft_x = softclass_NDCG(pred)  # shape [B]
+    group = pred.shape[1]
+    mc_label = torch.zeros(label.shape[0], device=pred.device, dtype=torch.long)  # shape [B]
+    for i in range(1, group):
+        indices = torch.topk(label, int(label.shape[0]*i/group)).indices.to(device=pred.device)
+        mc_label[indices] += 1
+    return approxNDCGLoss_cutk(soft_x, mc_label.float(), k=-1)
+
+
 def generate_label(pred, label):
     group = pred.shape[1]
     mc_label = torch.zeros(label.shape[0], device=pred.device, dtype=torch.long)  # shape [B]
@@ -209,6 +233,7 @@ def generate_label(pred, label):
         mc_label[indices] += 1  # shape B
     pred_label = torch.topk(pred, 1).indices.squeeze()  # shape B
     return pred_label, mc_label
+
 
 
 def evaluate_mc(preds):
