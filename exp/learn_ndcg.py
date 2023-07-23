@@ -1,9 +1,9 @@
 """
 different with classical single-step stock forecasting task
 we treat stock forecasting as a multi-classification approx ndcg task
-we will devide stocks into at least 3 different class according to their ranking in a single day
-optimize with cross-entropy first(then try approxNDCG, we have plan B)
-if classify, we use task name multi-class
+we will devide stocks into 4 different class according to their ranking in a single day
+and use approxNDCG as the loss function and use NDCG as the evaluation while training
+the basic network is like multi-classification
 """
 import torch
 import torch.optim as optim
@@ -30,7 +30,7 @@ from models.FiLM import Model as FiLM
 from models.Informer import Model as Informer
 from models.PatchTST import Model as PatchTST
 from utils.utils import metric_fn, mse, loss_ic, pair_wise_loss, NDCG_loss, ApproxNDCG_loss, cross_entropy, \
-    generate_label, evaluate_mc, class_approxNDCG
+    generate_label, evaluate_mc, class_approxNDCG, softclass_NDCG, NDCG_evaluation
 from utils.dataloader import create_loaders
 import warnings
 import logging
@@ -200,11 +200,8 @@ def train_epoch(epoch, model, optimizer, train_loader, writer, args,
             # other model only use feature as input
             # for multi-class, here we get a [B, N]
             pred = model(feature)
-        if args.loss_type == 'cross_entropy':
-            loss = cross_entropy(pred, label)
-        else:
-            loss = class_approxNDCG(pred, label)
 
+        loss = class_approxNDCG(pred, label)
 
         optimizer.zero_grad()
         loss.backward()
@@ -240,13 +237,11 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
             else:
                 pred = model(feature)
 
-            if args.loss_type == 'cross_entropy':
-                loss = cross_entropy(pred, label)
-            else:
-                loss = class_approxNDCG(pred, label)
-            pred_label, true_label = generate_label(pred, label)
+            loss = class_approxNDCG(pred, label)
+            pred_label, true_label = softclass_NDCG(pred, label)
+            # here pred and ground truth are real numbers from 0~3
             preds.append(pd.DataFrame({'pred': pred_label.cpu().numpy(),
-                                       'ground_truth': true_label.cpu().numpy(),}, index=index))
+                                       'ground_truth': true_label.cpu().numpy().astype(float),}, index=index))
 
             # preds.append(pd.DataFrame({'score': pred.cpu().numpy(), 'label': label.cpu().numpy(), }, index=index))
 
@@ -255,7 +250,7 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
     # evaluate
     preds = pd.concat(preds, axis=0)
     # use metric_fn to compute precision, recall, ic and rank ic
-    acc, average_precision, f1_micro, f1_macro = evaluate_mc(preds)
+    ndcg = NDCG_evaluation(preds)
 
     '''
     here change scores to others 
@@ -271,7 +266,7 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
     writer.add_scalar(prefix+'/'+args.metric, np.mean(scores), epoch)
     writer.add_scalar(prefix+'/std('+args.metric+')', np.std(scores), epoch)
 
-    return np.mean(losses), scores, acc, average_precision, f1_micro, f1_macro
+    return np.mean(losses), scores, ndcg
 
 
 def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=None):
@@ -292,9 +287,9 @@ def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=
                 pred = model(feature, mask)
             else:
                 pred = model(feature)
-            pred_label, true_label = generate_label(pred,label)
+            pred_label, true_label = softclass_NDCG(pred,label)
             preds.append(pd.DataFrame({'pred': pred_label.cpu().numpy(),
-                                       'ground_truth': true_label.cpu().numpy(),}, index=index))
+                                       'ground_truth': true_label.cpu().numpy().astype(float),}, index=index))
 
     preds = pd.concat(preds, axis=0)
     return preds
@@ -336,10 +331,8 @@ def main(args):
         stock2stock_matrix = torch.Tensor(stock2stock_matrix).to(device)
         num_relation = stock2stock_matrix.shape[2]
 
-    all_acc = []
-    all_macrof1 = []
-    all_precision = []
-    all_microf1 = []
+
+    all_ndcg = []
     for times in range(args.repeat):
         pprint('create model...')
         if args.model_name == 'SFM':
@@ -384,26 +377,18 @@ def main(args):
 
             pprint('evaluating...')
             # compute the loss, score, pre, recall, ic, rank_ic on train, valid and test data
-            train_loss, train_score, train_acc, train_avg_precision, train_f1_micro, train_f1_macro = \
+            train_loss, train_score, train_ndcg = \
                 test_epoch(epoch, model, train_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Train')
-            val_loss, val_score, val_acc, val_avg_precision, val_f1_micro, val_f1_macro = \
+            val_loss, val_score, val_ndcg = \
                 test_epoch(epoch, model, valid_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Valid')
-            test_loss, test_score, test_acc, test_avg_precision, test_f1_micro, test_f1_macro = \
+            test_loss, test_score, test_ndcg = \
                 test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix, stock2stock_matrix, prefix='Test')
 
             pprint('train_loss %.6f, valid_loss %.6f, test_loss %.6f'%(train_loss, val_loss, test_loss))
             # score equals to ic here
             # pprint('train_score %.6f, valid_score %.6f, test_score %.6f'%(train_score, val_score, test_score))
-            pprint('train_acc %.6f, valid_acc %.6f, test_acc %.6f'%(train_acc, val_acc, test_acc))
-            pprint('train_avg_precision %.6f, valid_avg_precision %.6f, test_avg_precision %.6f'%(train_avg_precision,
-                                                                                                  val_avg_precision,
-                                                                                                  test_avg_precision))
-            pprint('train_macro_f1 %.6f, valid_macro_f1 %.6f, test_macro_f1 %.6f' % (train_f1_macro,
-                                                                                     val_f1_macro,
-                                                                                     test_f1_macro))
-            pprint('train_micro_f1 %.6f, valid_micro_f1 %.6f, test_micro_f1 %.6f' % (train_f1_micro,
-                                                                                     val_f1_micro,
-                                                                                     test_f1_micro))
+            pprint('train_ndcg %.6f, valid_ndcg %.6f, test_ndcg %.6f'%(train_ndcg, val_ndcg, test_ndcg))
+
             # load back the current parameters
             model.load_state_dict(params_ckpt)
 
@@ -430,23 +415,13 @@ def main(args):
             # do prediction on train, valid and test data
             pred = inference(model, eval(name+'_loader'), stock2concept_matrix=stock2concept_matrix,
                             stock2stock_matrix=stock2stock_matrix)
-            acc, average_precision, f1_micro, f1_macro = evaluate_mc(pred)
-            pprint(name, ': Accuracy ', acc)
-            pprint(name, ': Avg Precision ', average_precision)
-            pprint(name, ':Micro F1', f1_micro)
-            pprint(name, ':Macro F1', f1_macro)
+            ndcg = NDCG_evaluation(pred)
+            pprint(name, ': NDCG ', ndcg)
 
-            res[name+'-ACC'] = acc
-            res[name + '-Avg Precision'] = average_precision
-            res[name + '-Micro F1'] = f1_micro
-            res[name + '-Macro F1'] = f1_macro
+            res[name + '-NDCG'] = ndcg
 
             # pred.to_pickle(output_path+'/pred.pkl.'+name+str(times))
-        all_acc.append(acc)
-
-        all_macrof1.append(f1_macro)
-        all_microf1.append(f1_micro)
-        all_precision.append(average_precision)
+        all_ndcg.append(ndcg)
 
         pprint('save info...')
         writer.add_hparams(
@@ -465,10 +440,7 @@ def main(args):
         default = lambda x: str(x)[:10] if isinstance(x, pd.Timestamp) else x
         with open(output_path+'/info.json', 'w') as f:
             json.dump(info, f, default=default, indent=4)
-    pprint('Accuracy: %.4f (%.4f)' % (np.array(all_acc).mean(), np.array(all_acc).std()))
-    pprint('F1 Macro: %.4f (%.4f)' % (np.array(all_macrof1).mean(), np.array(all_macrof1).std()))
-    pprint('F1 Micro: %.4f (%.4f)' % (np.array(all_microf1).mean(), np.array(all_microf1).std()))
-    pprint('Avg Precision: %.4f (%.4f)' % (np.array(all_precision).mean(), np.array(all_precision).std()))
+    pprint('NDCG: %.4f (%.4f)' % (np.array(all_ndcg).mean(), np.array(all_ndcg).std()))
 
     pprint('finished.')
 
@@ -497,8 +469,9 @@ def parse_args():
     parser.add_argument('--num_layers', type=int, default=2)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--K', type=int, default=1)
-    parser.add_argument('--loss_type', default='cross entropy')
-    parser.add_argument('--num_class', default=2, help='the number of class of stock sequence')
+    # parser.add_argument('--loss_type', default='cross entropy')
+    # also works for NDCG task
+    parser.add_argument('--num_class', default=4, help='the number of class of stock sequence')
 
     # for ts lib model
     parser.add_argument('--task_name', type=str, default='multi-class', help='task setup')
@@ -526,7 +499,6 @@ def parse_args():
     parser.add_argument('--affine', default=True, help='use learnable parameters or not in RevIn')
     parser.add_argument('--subtract_last', default=False, help='subtract_last or not in RevIn')
 
-
     # training
     parser.add_argument('--n_epochs', type=int, default=200)
     parser.add_argument('--lr', type=float, default=2e-4)
@@ -543,7 +515,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=-1)  # -1 indicate daily batch
     parser.add_argument('--least_samples_num', type=float, default=1137.0) 
     parser.add_argument('--label', default='')  # specify other labels
-    parser.add_argument('--train_start_date', default='2017-01-01')
+    parser.add_argument('--train_start_date', default='2008-01-01')
     parser.add_argument('--train_end_date', default='2018-12-31')
     parser.add_argument('--valid_start_date', default='2019-01-01')
     parser.add_argument('--valid_end_date', default='2020-12-31')
@@ -561,7 +533,7 @@ def parse_args():
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
     parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/mc/PatchTST_multiclass')
+    parser.add_argument('--outdir', default='./output/ndcg/PatchTST_NDCG')
     parser.add_argument('--overwrite', action='store_true', default=False)
     parser.add_argument('--device', default='cuda:2')
     args = parser.parse_args()
