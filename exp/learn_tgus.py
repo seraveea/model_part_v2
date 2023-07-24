@@ -483,7 +483,7 @@ def main(args):
         all_ic.append(ic)
         all_rank_ic.append(rank_ic)
 
-        pprint('save info...')
+
         writer.add_hparams(
             vars(args),
             {
