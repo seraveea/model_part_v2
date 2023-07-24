@@ -328,7 +328,8 @@ def create_loaders(args, device):
     df_train, df_valid, df_test = dataset.prepare(["train", "valid", "test"], col_set=["feature", "label"],
                                                   data_key=DataHandlerLP.DK_L, )
     # split those three dataset into train, valid and test
-    import pickle5 as pickle
+    # import pickle5 as pickle
+    import pickle
     with open(args.market_value_path, "rb") as fh:
         # load market value
         df_market_value = pickle.load(fh)
@@ -395,7 +396,8 @@ def create_test_loaders(args, param_dict,device):
     # prepare return a list of df, df_test is the first one
     df_test = dataset.prepare(["test"], col_set=["feature", "label"], data_key=DataHandlerLP.DK_L, )[0]
     # ----------------------------------------
-    import pickle5 as pickle
+    # import pickle5 as pickle
+    import pickle
     # only HIST need this
     with open(param_dict['market_value_path'], "rb") as fh:
         # load market value
