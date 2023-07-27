@@ -85,11 +85,12 @@ def get_model(model_name):
     raise ValueError('unknown model name `%s`' % model_name)
 
 def plot_norm(num_bins, losses):
-    mpl.use('TkAgg')
+    # mpl.use('TkAgg')
     losses = np.array(losses)
     mu = np.mean(losses)  # 计算均值
     sigma = np.std(losses)
     return mu, sigma
+
 
 def average_params(params_list):
     assert isinstance(params_list, (tuple, list, collections.deque))
@@ -265,11 +266,11 @@ def main(args, device):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--incre_start_date', default='2022-06-01')
-    parser.add_argument('--incre_end_date', default='2023-06-01')
+    parser.add_argument('--incre_start_date', default='2022-01-01')
+    parser.add_argument('--incre_end_date', default='2023-01-01')
     parser.add_argument('--device', default='cuda:0')
-    parser.add_argument('--model_path', default='./output/for_platform/GRU', help='learned model')
-    parser.add_argument('--model_save_path', default='./output/for_platform/INCRE/GRU_incre', help='updated model')
+    parser.add_argument('--model_path', default='./output/for_platform/LSTM', help='learned model')
+    parser.add_argument('--model_save_path', default='./output/for_platform/INCRE/LSTM_incre', help='updated model')
     parser.add_argument('--incre_p', default=1000000, help='weight of distillation losses')
     parser.add_argument('--incre_alpha', default=0.1, help='trigger hyperparameters for incremental updates')
     args = parser.parse_args()

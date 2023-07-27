@@ -497,8 +497,8 @@ def parse_args():
     parser.add_argument('--num_layers', type=int, default=2)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--K', type=int, default=1)
-    parser.add_argument('--loss_type', default='cross entropy')
-    parser.add_argument('--num_class', default=2, help='the number of class of stock sequence')
+    parser.add_argument('--loss_type', default='cross_entropy')
+    parser.add_argument('--num_class', default=4, help='the number of class of stock sequence')
 
     # for ts lib model
     parser.add_argument('--task_name', type=str, default='multi-class', help='task setup')
@@ -516,7 +516,7 @@ def parse_args():
     parser.add_argument('--n_heads', type=int, default=1, help='num of heads')
     parser.add_argument('--d_ff', type=int, default=64, help='dimension of fcn')
     parser.add_argument('--activation', type=str, default='gelu', help='activation')
-    parser.add_argument('--e_layers', type=int, default=2, help='num of encoder layers')
+    parser.add_argument('--e_layers', type=int, default=8, help='num of encoder layers')
     parser.add_argument('--top_k', type=int, default=5, help='for TimesBlock')
     parser.add_argument('--pred_len', type=int, default=-1, help='the length of pred squence, in regression set to -1')
     parser.add_argument('--de_norm', default=True, help='de normalize or not')
@@ -543,7 +543,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=-1)  # -1 indicate daily batch
     parser.add_argument('--least_samples_num', type=float, default=1137.0) 
     parser.add_argument('--label', default='')  # specify other labels
-    parser.add_argument('--train_start_date', default='2017-01-01')
+    parser.add_argument('--train_start_date', default='2008-01-01')
     parser.add_argument('--train_end_date', default='2018-12-31')
     parser.add_argument('--valid_start_date', default='2019-01-01')
     parser.add_argument('--valid_end_date', default='2020-12-31')
@@ -563,7 +563,7 @@ def parse_args():
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
     parser.add_argument('--outdir', default='./output/mc/PatchTST_multiclass')
     parser.add_argument('--overwrite', action='store_true', default=False)
-    parser.add_argument('--device', default='cuda:2')
+    parser.add_argument('--device', default='cuda:0')
     args = parser.parse_args()
 
     return args
