@@ -1,5 +1,7 @@
 # Stock prediction module
 This repo is for K-Quant project, stock forecasting module.
+### ---------------------------------[Update] July 27th---------------------
+Add pretrian Incremental models
 ### ---------------------------------[Update] July 19th----------------------------------------
 #### Add incremental learning module. 
 Run the following:
