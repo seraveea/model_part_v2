@@ -324,7 +324,6 @@ def create_loaders(args, device):
                 'test': (args.test_start_date, args.test_end_date)}
     # get dataset from qlib
     dataset = DatasetH(handler, segments)
-
     df_train, df_valid, df_test = dataset.prepare(["train", "valid", "test"], col_set=["feature", "label"],
                                                   data_key=DataHandlerLP.DK_L, )
     # split those three dataset into train, valid and test
