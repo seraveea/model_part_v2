@@ -16,7 +16,7 @@ import pandas as pd
 from torch.utils.tensorboard import SummaryWriter
 import sys
 sys.path.insert(0, sys.path[0]+"/../")
-from models.model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR, relation_GATs, relation_GATs_3heads
+from models.model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR, relation_GATs, relation_GATs_3heads, KEnhance
 from qlib.contrib.model.pytorch_transformer import Transformer
 from models.DLinear import DLinear_model
 from models.Autoformer import Model as autoformer
@@ -52,7 +52,8 @@ time_series_library = [
 relation_model_dict = [
     'RSR',
     'relation_GATs',
-    'relation_GATs_3heads'
+    'relation_GATs_3heads',
+    'KEnhance'
 ]
 
 
@@ -116,6 +117,9 @@ def get_model(model_name):
 
     if model_name.upper() == 'PATCHTST':
         return PatchTST
+
+    if model_name.upper() == 'KENHANCE':
+        return KEnhance
 
     raise ValueError('unknown model name `%s`'%model_name)
 
@@ -199,16 +203,8 @@ def train_epoch(epoch, model, optimizer, train_loader, writer, args,
         else:
             # other model only use feature as input
             pred = model(feature)
-        if args.loss_type == 'ic':
-            loss = loss_ic(pred, label)
-        elif args.loss_type == 'pair_wise':
-            loss = pair_wise_loss(pred, label)
-        elif args.loss_type == 'ndcg':
-            loss = NDCG_loss(pred, label)
-        elif args.loss_type == 'appndcg':
-            loss = ApproxNDCG_loss(pred, label)
-        else:
-            loss = loss_fn(pred, label)
+
+        loss = loss_fn(pred, label)
 
         optimizer.zero_grad()
         loss.backward()
@@ -244,16 +240,8 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
             else:
                 pred = model(feature)
 
-            if args.loss_type == 'ic':
-                loss = loss_ic(pred, label)
-            elif args.loss_type == 'pair_wise':
-                loss = pair_wise_loss(pred, label)
-            elif args.loss_type == 'ndcg':
-                loss = NDCG_loss(pred, label)
-            elif args.loss_type == 'appndcg':
-                loss = ApproxNDCG_loss(pred, label)
-            else:
-                loss = loss_fn(pred, label)
+
+            loss = loss_fn(pred, label)
             preds.append(pd.DataFrame({'score': pred.cpu().numpy(), 'label': label.cpu().numpy(), }, index=index))
 
         losses.append(loss.item())
@@ -354,7 +342,7 @@ def main(args):
             model = get_model(args.model_name)(args.d_feat, args.hidden_size, args.num_layers, dropout=0.5)
         elif args.model_name == 'HIST':
             model = get_model(args.model_name)(d_feat=args.d_feat, num_layers=args.num_layers, K=args.K)
-        elif args.model_name == 'RSR':
+        elif args.model_name in relation_model_dict:
             model = get_model(args.model_name)(num_relation=num_relation, d_feat=args.d_feat, num_layers=args.num_layers)
         elif args.model_name in time_series_library:
             model = get_model(args.model_name)(args)
@@ -503,7 +491,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # model
-    parser.add_argument('--model_name', default='HIST')
+    parser.add_argument('--model_name', default='KEnhance')
     parser.add_argument('--d_feat', type=int, default=6)
     parser.add_argument('--hidden_size', type=int, default=128)
     parser.add_argument('--num_layers', type=int, default=2)
@@ -558,14 +546,14 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--annot', default='')
     parser.add_argument('--config', action=ParseConfigFile, default='')
-    parser.add_argument('--name', type=str, default='HIST')
+    parser.add_argument('--name', type=str, default='KEnhance')
 
     # input for csi 300
     parser.add_argument('--market_value_path', default='./data/csi300_market_value_07to22.pkl')
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
     parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/csi300_t+1/csi300_ts_HIST_latest')
+    parser.add_argument('--outdir', default='./output/for_platform/KEnhance')
     parser.add_argument('--overwrite', action='store_true', default=False)
     parser.add_argument('--device', default='cuda:1')
     args = parser.parse_args()

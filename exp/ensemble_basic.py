@@ -9,7 +9,7 @@ import torch
 import argparse
 import pickle
 from tqdm import tqdm
-from models.model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR, relation_GATs, relation_GATs_3heads
+from models.model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR, relation_GATs, relation_GATs_3heads, KEnhance
 from models.ensemble_model import ReweightModel, PerfomanceBasedModel
 from qlib.contrib.model.pytorch_transformer import Transformer
 from models.DLinear import DLinear_model
@@ -37,7 +37,8 @@ time_series_library = [
 relation_model_dict = [
     'RSR',
     'relation_GATs',
-    'relation_GATs_3heads'
+    'relation_GATs_3heads',
+    'KEnhance'
 ]
 
 
@@ -72,6 +73,11 @@ def get_model(model_name):
     if model_name.upper() == 'PATCHTST':
         return PatchTST
 
+    if model_name.upper() == 'KENHANCE':
+        return KEnhance
+
+
+
     raise ValueError('unknown model name `%s`' % model_name)
 
 
@@ -96,7 +102,7 @@ def metric_fn(preds, score='score'):
     return precision, recall, ic, rank_ic, icir, rank_icir
 
 
-def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=None, model_name=''):
+def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=None, model_name='', inference_name=''):
     model.eval()
     preds = []
     for i, slc in tqdm(data_loader.iter_daily(), total=data_loader.daily_length):
@@ -113,7 +119,7 @@ def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=
             else:
                 pred = model(feature)
             preds.append(
-                pd.DataFrame({model_name + '_score': pred.cpu().numpy(), 'label': label.cpu().numpy(), }, index=index))
+                pd.DataFrame({inference_name + '_score': pred.cpu().numpy(), 'label': label.cpu().numpy(), }, index=index))
 
     preds = pd.concat(preds, axis=0)
     return preds
@@ -158,7 +164,9 @@ def _prediction(param_dict, test_loader, device):
     else:
         model.load_state_dict(torch.load(param_dict['model_dir'] + '/model.bin', map_location=device))
         print('predict in ', param_dict['model_name'])
-    pred = inference(model, test_loader, stock2concept_matrix, stock2stock_matrix, param_dict['model_name'])
+    # pred = inference(model, test_loader, stock2concept_matrix, stock2stock_matrix, param_dict['model_name'])
+    pred = inference(model, test_loader, stock2concept_matrix, stock2stock_matrix,
+                     param_dict['model_name'], param_dict['inference_name'])
     return pred
 
 
@@ -170,8 +178,10 @@ def batch_prediction(args, model_pool, device):
         model_path = args.prefix+i
         param_dict = json.load(open(model_path+'/info.json'))['config']
         param_dict['model_dir'] = model_path
+        param_dict['inference_name'] = i  # create a inference name to avoid model name is different with name in model pool like RSR and RSR_hidy
+
         if args.incremental_mode:
-            param_dict['incre_model_path'] = args.incre_model_path+i
+            param_dict['incre_model_path'] = args.incre_prefix+i+'_incre'
         else:
             param_dict['incre_model_path'] = None
         pred = _prediction(param_dict, test_loader, device)
@@ -271,7 +281,7 @@ def find_time_interval(tset, time, df=None, lookback=5):
         return res_df
 
 
-def sim_linear(model_pool, data, lookback=90, eva_type='ic+rank_ic', select_num=3):
+def sim_linear(data, model_pool, lookback=30, eva_type='ic', select_num=5):
     # this function is used to train a temp learner, that could generate a blend score for one day
     # input should be score_pool, data, lookback
     # output is a dataframe with new score from the temp learner
@@ -286,11 +296,14 @@ def sim_linear(model_pool, data, lookback=90, eva_type='ic+rank_ic', select_num=
                 if eva_type == 'ic+rank_ic':
                     precision, recall, ic, rank_ic, icir, rank_icir= metric_fn(temp, score=name)
                     report[name] = ic + rank_ic
+                if eva_type == 'ic':
+                    precision, recall, ic, rank_ic, icir, rank_icir= metric_fn(temp, score=name)
+                    report[name] = ic
                     # evaluate on lookback data
             report = dict(sorted(report.items(), key=lambda item: item[1]))
             ordered_model_list = list(report.keys())
             # 经过大量训练后其实模型选择影响不大，绝大多数情况都会选择到某几个模型
-            if 0<select_num<=len(ordered_model_list):
+            if 0 < select_num <= len(ordered_model_list):
                 cur_pool = ordered_model_list[len(ordered_model_list)-select_num:]
             else:
                 print('the chosen number of model is not valid, select all models dy default')
@@ -303,7 +316,7 @@ def sim_linear(model_pool, data, lookback=90, eva_type='ic+rank_ic', select_num=
             y_t = model.predict(x_t)
             data.loc[time,'dynamic_ensemble_score']= y_t
     report = pd.DataFrame()
-    for name in score_pool+['average_score', 'blend_score', 'dynamic_ensemble_score']:
+    for name in score_pool+['dynamic_ensemble_score']:
         temp = dict()
         temp['model'] = name
         precision, recall, ic, rank_ic, icir, rank_icir = metric_fn(data, score=name)
@@ -320,13 +333,15 @@ def sim_linear(model_pool, data, lookback=90, eva_type='ic+rank_ic', select_num=
 
 
 def main(args, device):
-    model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'HIST']
+    model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'SFM']
+    # all_model_pool = ['RSR_hidy_is', 'KEnhance', 'LSTM', 'GRU', 'GATs', 'MLP', 'ALSTM', 'SFM', 'HIST']
     output = batch_prediction(args, model_pool, device)
-    # output, report = average_and_blend(args, output, model_pool)
-    # output, report = sim_linear(model_pool, output, lookback=30)
-    output, report = sjtu_ensemble(args, output, model_pool)
+    # output, report = average_and_blend(args, output, all_model_pool)
+    # output, report = sjtu_ensemble(args, output, all_model_pool)
+    # output, report = sim_linear(output, all_model_pool)
+    pd.to_pickle(output, 'pred_output/all_in_one_incre.pkl')
     print(output.head())
-    print(report)
+    # print(report)
 
 
 def parse_args():
@@ -337,11 +352,11 @@ def parse_args():
     """
     parser = argparse.ArgumentParser()
     # data
-    parser.add_argument('--test_start_date', default='2022-01-01')
-    parser.add_argument('--blend_split_date', default='2022-12-31')
-    parser.add_argument('--test_end_date', default='2023-06-01')
+    parser.add_argument('--test_start_date', default='2021-01-01')
+    parser.add_argument('--blend_split_date', default='2021-06-01')
+    parser.add_argument('--test_end_date', default='2023-06-30')
     parser.add_argument('--device', default='cuda:1')
-    parser.add_argument('--incremental_mode', default=False, help='load incremental updated models or not')
+    parser.add_argument('--incremental_mode', default=True, help='load incremental updated models or not')
     parser.add_argument('--prefix', default='output/for_platform/')
     parser.add_argument('--incre_prefix', default='output/for_platform/INCRE/')
 

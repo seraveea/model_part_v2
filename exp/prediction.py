@@ -165,12 +165,12 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # data
     parser.add_argument('--test_start_date', default='2022-06-01')
-    parser.add_argument('--test_end_date', default='2023-06-01')
+    parser.add_argument('--test_end_date', default='2023-06-30')
     parser.add_argument('--device', default='cuda:1')
-    parser.add_argument('--incremental_mode', default=False, help='load incremental updated models or not')
-    parser.add_argument('--incre_model_path', default='./output/for_platform/INCRE/LSTM')
-    parser.add_argument('--model_path', default='./output/for_platform/LSTM')
-    parser.add_argument('--pkl_path', default='./pred_output/csi_300_lstm.pkl',
+    parser.add_argument('--incremental_mode', default=True, help='load incremental updated models or not')
+    parser.add_argument('--incre_model_path', default='./output/for_platform/INCRE/mlp_incre')
+    parser.add_argument('--model_path', default='./output/for_platform/MLP')
+    parser.add_argument('--pkl_path', default='./pred_output/mlp_12_incre.pkl',
                         help='location to save the pred dictionary file')
     args = parser.parse_args()
     return args

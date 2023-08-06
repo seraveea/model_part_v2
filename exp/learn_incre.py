@@ -266,8 +266,8 @@ def main(args, device):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--incre_start_date', default='2022-01-01')
-    parser.add_argument('--incre_end_date', default='2023-01-01')
+    parser.add_argument('--incre_start_date', default='2020-01-01')
+    parser.add_argument('--incre_end_date', default='2022-05-31')
     parser.add_argument('--device', default='cuda:0')
     parser.add_argument('--model_path', default='./output/for_platform/LSTM', help='learned model')
     parser.add_argument('--model_save_path', default='./output/for_platform/INCRE/LSTM_incre', help='updated model')
@@ -280,4 +280,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     device = args.device if torch.cuda.is_available() else 'cpu'
-    main(args, device)
+    for model_name in ['ALSTM', 'GATs', 'GRU', 'LSTM', 'MLP', 'SFM']:
+        args.model_path = './output/for_platform/' + model_name
+        args.model_save_path = './output/for_platform/INCRE/' + model_name + '_incre'
+        main(args, device)

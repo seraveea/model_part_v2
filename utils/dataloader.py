@@ -538,3 +538,31 @@ def create_incre_pre_loaders(args, param_dict, device):
     incre_pre_loader = DataLoader(df_incre["feature"], df_incre["label"], df_incre['market_value'], df_incre['stock_index'],
                               batch_size=param_dict['batch_size'], pin_memory=param_dict['pin_memory'], start_index=start_index, device=device)
     return incre_pre_loader
+
+
+def create_doubleadapt_loaders(args):
+    """
+    load qlib alpha360 data and split into train, validation and test loader
+    :param args:
+    :return:
+    """
+    start_time = datetime.datetime.strptime(args.incre_train_start, '%Y-%m-%d')
+    end_time = datetime.datetime.strptime(args.test_end, '%Y-%m-%d')
+    train_end_time = datetime.datetime.strptime(args.test_end, '%Y-%m-%d')
+
+    handler = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
+            'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
+                        'fit_end_time': train_end_time, 'instruments': 'csi300', 'infer_processors': [
+                    {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
+                    {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
+                        'learn_processors': [{'class': 'DropnaLabel'},
+                                            {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
+                        'label': ['Ref($close, -2) / Ref($close, -1) - 1']}}
+
+    segments = {
+        'train': (args.incre_train_start, args.test_end)
+    }
+    # get dataset from qlib
+    dataset = DatasetH(handler, segments)
+    data = dataset.prepare(["train"], col_set=["feature", "label"], data_key=DataHandlerLP.DK_L, )[0]
+    return data
