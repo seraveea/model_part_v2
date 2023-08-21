@@ -37,6 +37,7 @@ csi300_industry_map = {'农林牧渔': ['SZ002311', 'SZ300498', 'SZ002714'],
                        '美容护理': ['SH688363']
 }
 
+
 def backtest_loop(data, model_name, EXECUTOR_CONFIG, backtest_config):
     data = data[[model_name]]
     data.columns = [['score']]
@@ -51,8 +52,8 @@ def backtest_loop(data, model_name, EXECUTOR_CONFIG, backtest_config):
 
     FREQ = "day"
     STRATEGY_CONFIG = {
-    "topk": 30,
-    "n_drop": 5,
+    "topk": 100,
+    "n_drop": 0,
     # pred_score, pd.Series
     "signal": data,
     }
@@ -99,8 +100,8 @@ def backtest_fig(data, model_name, EXECUTOR_CONFIG, backtest_config,time):
 
     FREQ = "day"
     STRATEGY_CONFIG = {
-    "topk": 30,
-    "n_drop": 5,
+    "topk": 100,
+    "n_drop": 0,
     # pred_score, pd.Series
     "signal": data,
     }
@@ -137,6 +138,51 @@ def back_test_main():
     }
     FREQ = 'day'
     backtest_config = {
+        "start_time": "2023-04-01",
+        "end_time": "2023-06-30",
+        "account": 100000000,
+        "benchmark": CSI300_BENCH,  # "benchmark": NASDAQ_BENCH,
+        "exchange_kwargs": {
+            "freq": FREQ,
+            "limit_threshold": 0.095,
+            "deal_price": "close",
+            "open_cost": 0.00005,
+            "close_cost": 0.00015,
+            # 'close_cost': 0.0003,
+            "min_cost": 5,
+        }, }
+    model_pool = ['GRU','LSTM','GATs','MLP','ALSTM','HIST','ensemble_retrain','RSR_hidy_is','KEnhance','SFM',
+                  'ensemble_no_retrain', 'Perfomance_based_ensemble', 'average', 'blend', 'dynamic_ensemble']
+    # model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'SFM']
+    pd_pool = []
+    for model in model_pool:
+        symbol = model + '_score'
+        benchmark, er_wo_cost, er_w_cost = backtest_loop(data, symbol, EXECUTOR_CONFIG, backtest_config)
+        er_w_cost.columns = [[model + '_with_cost']]
+        # er_wo_cost.columns = [[model + '_without_cost']]
+        benchmark.columns = [['benchmarks']]
+        if len(pd_pool) == 0:
+            # pd_pool.extend([benchmark, er_w_cost, er_wo_cost])
+            pd_pool.extend([benchmark, er_w_cost])
+        else:
+            # pd_pool.extend([er_w_cost, er_wo_cost])
+            pd_pool.extend([er_w_cost])
+    df = pd.concat(pd_pool, axis=1)
+    df = df.T
+    df.to_pickle('pred_output/backtest_3_3.pkl')
+
+
+def draw_main():
+    data = pd.read_pickle('pred_output/all_in_one.pkl')
+    qlib.init(provider_uri="../qlib_data/cn_data")
+    data = data.dropna()
+    CSI300_BENCH = "SH000300"
+    EXECUTOR_CONFIG = {
+        "time_per_step": "day",
+        "generate_portfolio_metrics": True,
+    }
+    FREQ = 'day'
+    backtest_config = {
         "start_time": "2022-06-01",
         "end_time": "2023-06-30",
         "account": 100000000,
@@ -149,51 +195,15 @@ def back_test_main():
             "close_cost": 0.00015,
             "min_cost": 5,
         }, }
-    # model_pool = ['GRU','LSTM','GATs','MLP','ALSTM','HIST','ensemble_retrain','RSR_hidy_is','KEnhance','SFM',
-    #               'ensemble_no_retrain', 'Perfomance_based_ensemble', 'average', 'blend', 'dynamic_ensemble']
-    model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'SFM']
-    pd_pool = []
-    for model in model_pool:
-        symbol = model + '_score'
-        benchmark, er_wo_cost, er_w_cost = backtest_loop(data, symbol, EXECUTOR_CONFIG, backtest_config)
-        er_w_cost.columns = [[model + '_with_cost']]
-        er_wo_cost.columns = [[model + '_without_cost']]
-        benchmark.columns = [['benchmarks']]
-        if len(pd_pool) == 0:
-            pd_pool.extend([benchmark, er_w_cost, er_wo_cost])
-        else:
-            pd_pool.extend([er_w_cost, er_wo_cost])
-    df = pd.concat(pd_pool, axis=1)
-    df = df.T
-    df.to_pickle('pred_output/backtest_incre_12.pkl')
-
-
-if __name__ == "__main__":
-    data = pd.read_pickle('pred_output/all_in_one.pkl')
-    qlib.init(provider_uri="../qlib_data/cn_data")
-    data = data.dropna()
-    CSI300_BENCH = "SH000300"
-    EXECUTOR_CONFIG = {
-        "time_per_step": "day",
-        "generate_portfolio_metrics": True,
-    }
-    FREQ = 'day'
-    backtest_config = {
-        "start_time": "2023-04-01",
-        "end_time": "2023-06-30",
-        "account": 100000000,
-        "benchmark": CSI300_BENCH,  # "benchmark": NASDAQ_BENCH,
-        "exchange_kwargs": {
-            "freq": FREQ,
-            "limit_threshold": 0.095,
-            "deal_price": "close",
-            "open_cost": 0.00005,
-            "close_cost": 0.00015,
-            "min_cost": 5,
-        }, }
-    model_pool = ['GRU','LSTM','GATs','MLP','ALSTM','HIST','ensemble_retrain','RSR_hidy_is','KEnhance','SFM',
+    model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'HIST', 'ensemble_retrain', 'RSR_hidy_is', 'KEnhance', 'SFM',
                   'ensemble_no_retrain', 'Perfomance_based_ensemble', 'average', 'blend', 'dynamic_ensemble']
     # model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'SFM']
     for model in model_pool:
         symbol = model + '_score'
-        report_normal = backtest_fig(data, symbol, EXECUTOR_CONFIG, backtest_config, time='3')
+        report_normal = backtest_fig(data, symbol, EXECUTOR_CONFIG, backtest_config, time='12_3')
+        print('fig saved')
+
+
+if __name__ == "__main__":
+    # back_test_main()
+    draw_main()

@@ -240,7 +240,6 @@ def generate_label(pred, label):
     return pred_label, mc_label
 
 
-
 def evaluate_mc(preds):
     # default precision setting is micro
     acc = preds.groupby(level='datetime').apply(lambda x: accuracy_score(x['ground_truth'],x['pred'])).mean()

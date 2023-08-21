@@ -26,7 +26,7 @@ from models.FEDformer import Model as FEDformer
 from models.FiLM import Model as FiLM
 from models.Informer import Model as Informer
 from models.PatchTST import Model as PatchTST
-from utils.utils import metric_fn, mse, loss_ic, pair_wise_loss, NDCG_loss, ApproxNDCG_loss
+from utils.utils import metric_fn, mse
 from utils.dataloader import create_loaders
 import warnings
 import logging
@@ -360,7 +360,6 @@ def main(args):
         params_list = collections.deque(maxlen=args.smooth_steps)
         for epoch in range(args.n_epochs):
             pprint('Running', times, 'Epoch:', epoch)
-
             pprint('training...')
             train_epoch(epoch, model, optimizer, train_loader, writer, args, stock2concept_matrix, stock2stock_matrix)
             # save model  after every epoch
@@ -491,7 +490,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # model
-    parser.add_argument('--model_name', default='KEnhance')
+    parser.add_argument('--model_name', default='RSR')
     parser.add_argument('--d_feat', type=int, default=6)
     parser.add_argument('--hidden_size', type=int, default=128)
     parser.add_argument('--num_layers', type=int, default=2)
@@ -515,7 +514,6 @@ def parse_args():
     parser.add_argument('--activation', type=str, default='gelu', help='activation')
     parser.add_argument('--e_layers', type=int, default=8, help='num of encoder layers')
     parser.add_argument('--top_k', type=int, default=5, help='for TimesBlock')
-    parser.add_argument('--task_name', type=str, default='regression', help='task setup')
     parser.add_argument('--pred_len', type=int, default=-1, help='the length of pred squence, in regression set to -1')
     parser.add_argument('--de_norm', default=True, help='de normalize or not')
 
@@ -525,35 +523,35 @@ def parse_args():
     parser.add_argument('--early_stop', type=int, default=30)
     parser.add_argument('--smooth_steps', type=int, default=5)
     parser.add_argument('--metric', default='IC')
-    # parser.add_argument('--loss', default='mse')
-    parser.add_argument('--repeat', type=int, default=10)
+    parser.add_argument('--loss', default='mse')
+    parser.add_argument('--repeat', type=int, default=5)
 
     # data
     parser.add_argument('--data_set', type=str, default='csi300')
-    parser.add_argument('--target', type=str, default='t+1')
+    parser.add_argument('--target', type=str, default='t+0')
     parser.add_argument('--pin_memory', action='store_false', default=True)
     parser.add_argument('--batch_size', type=int, default=-1)  # -1 indicate daily batch
     parser.add_argument('--least_samples_num', type=float, default=1137.0) 
     parser.add_argument('--label', default='')  # specify other labels
-    parser.add_argument('--train_start_date', default='2008-01-01')
-    parser.add_argument('--train_end_date', default='2016-12-31')
-    parser.add_argument('--valid_start_date', default='2017-01-01')
-    parser.add_argument('--valid_end_date', default='2019-12-31')
-    parser.add_argument('--test_start_date', default='2020-01-01')
+    parser.add_argument('--train_start_date', default='2007-01-01')
+    parser.add_argument('--train_end_date', default='2014-12-31')
+    parser.add_argument('--valid_start_date', default='2015-01-01')
+    parser.add_argument('--valid_end_date', default='2018-12-31')
+    parser.add_argument('--test_start_date', default='2019-01-01')
     parser.add_argument('--test_end_date', default='2022-12-31')
 
     # other
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--annot', default='')
     parser.add_argument('--config', action=ParseConfigFile, default='')
-    parser.add_argument('--name', type=str, default='KEnhance')
+    parser.add_argument('--name', type=str, default='RSR')
 
     # input for csi 300
     parser.add_argument('--market_value_path', default='./data/csi300_market_value_07to22.pkl')
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
-    parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
+    parser.add_argument('--stock2stock_matrix', default='./data/ablation/csi300_multi_stock2stock_all.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/for_platform/KEnhance')
+    parser.add_argument('--outdir', default='./output/for_nips_re/RSR_all')
     parser.add_argument('--overwrite', action='store_true', default=False)
     parser.add_argument('--device', default='cuda:1')
     args = parser.parse_args()

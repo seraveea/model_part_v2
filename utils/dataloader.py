@@ -16,7 +16,7 @@ from qlib.data.dataset.handler import DataHandlerLP
 class DataLoader:
 
     def __init__(self, df_feature, df_label, df_market_value, df_stock_index, batch_size=800, pin_memory=True,
-                 start_index=0, device=None):
+                 start_index=0, device=None, task=None):
 
         assert len(df_feature) == len(df_label)
 
@@ -28,7 +28,11 @@ class DataLoader:
 
         if pin_memory:
             self.df_feature = torch.tensor(self.df_feature, dtype=torch.float, device=device)
-            self.df_label = torch.tensor(self.df_label, dtype=torch.float, device=device)
+            if task == 'multi-class':
+                self.df_label = torch.tensor(self.df_label, dtype=torch.long, device=device)
+            else:
+                self.df_label = torch.tensor(self.df_label, dtype=torch.float, device=device)
+            # self.df_label = torch.tensor(self.df_label, dtype=torch.float, device=device)
             self.df_market_value = torch.tensor(self.df_market_value, dtype=torch.float, device=device)
             self.df_stock_index = torch.tensor(self.df_stock_index, dtype=torch.long, device=device)
 
@@ -304,12 +308,27 @@ def create_loaders(args, device):
     if args.target == 't+0':
         handler = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
                 'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
-                            'fit_end_time': train_end_time, 'instruments': args.data_set, 'infer_processors': [
+                            'fit_end_time': train_end_time, 'instruments': args.data_set,
+                           'infer_processors': [
                         {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
                         {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
                             'learn_processors': [{'class': 'DropnaLabel'},
                                                 {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
                             'label': ['Ref($close, -1) / $close - 1']}}
+    elif args.target == 'noNorm':
+        handler = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
+                'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
+                            'fit_end_time': train_end_time, 'instruments': args.data_set,
+                            'label': ['Ref($close, -2) / Ref($close, -1) - 1']}}
+    elif args.target == 'week':
+        handler = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
+                'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
+                            'fit_end_time': train_end_time, 'instruments': args.data_set, 'infer_processors': [
+                        {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
+                        {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
+                            'learn_processors': [{'class': 'DropnaLabel'},
+                                                {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
+                            'label': ['Ref($close, -6) / Ref($close, -1) - 1']}}
     else:
         handler = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
                 'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
@@ -319,13 +338,20 @@ def create_loaders(args, device):
                             'learn_processors': [{'class': 'DropnaLabel'},
                                                 {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
                             'label': ['Ref($close, -2) / Ref($close, -1) - 1']}}
+
     segments = {'train': (args.train_start_date, args.train_end_date),
                 'valid': (args.valid_start_date, args.valid_end_date),
                 'test': (args.test_start_date, args.test_end_date)}
     # get dataset from qlib
     dataset = DatasetH(handler, segments)
-    df_train, df_valid, df_test = dataset.prepare(["train", "valid", "test"], col_set=["feature", "label"],
-                                                  data_key=DataHandlerLP.DK_L, )
+    if args.target == 'noNorm':
+        df_train, df_valid, df_test = dataset.prepare(["train", "valid", "test"],
+                                                      col_set=["feature", "label"], data_key=DataHandlerLP.DK_L, )
+        df_train_r, df_valid_r, df_test_r = dataset.prepare(["train", "valid", "test"],
+                                                      col_set=["feature", "label"], data_key=DataHandlerLP.DK_R, )
+    else:
+        df_train, df_valid, df_test = dataset.prepare(["train", "valid", "test"],
+                                                      col_set=["feature", "label"],data_key=DataHandlerLP.DK_L, )
     # split those three dataset into train, valid and test
     # import pickle5 as pickle
     import pickle
@@ -344,10 +370,16 @@ def create_loaders(args, device):
     df_train['stock_index'] = 733
     df_train['stock_index'] = df_train.index.get_level_values('instrument').map(stock_index).fillna(733).astype(int)
     # the market value and stock_index added to each line
-
-    train_loader = DataLoader(df_train["feature"], df_train["label"], df_train['market_value'], df_train['stock_index'],
-                              batch_size=args.batch_size, pin_memory=args.pin_memory, start_index=start_index,
-                              device=device)
+    if args.target == 'noNorm':
+        df_train[('bin_label','bins')] = df_train_r[('label', 'Ref($close, -2) / Ref($close, -1) - 1')].apply(lambda x:
+                                                                                                      bin_helper(x))
+        train_loader = DataLoader(df_train["feature"], df_train["bin_label"], df_train['market_value'],
+                                  df_train['stock_index'],batch_size=args.batch_size, pin_memory=args.pin_memory,
+                                  start_index=start_index,device=device, task=args.task_name)
+    else:
+        train_loader = DataLoader(df_train["feature"], df_train["label"], df_train['market_value'],
+                                  df_train['stock_index'],batch_size=args.batch_size, pin_memory=args.pin_memory,
+                                  start_index=start_index,device=device)
 
     slc = slice(pd.Timestamp(args.valid_start_date), pd.Timestamp(args.valid_end_date))
     df_valid['market_value'] = df_market_value[slc]
@@ -356,9 +388,15 @@ def create_loaders(args, device):
     df_valid['stock_index'] = df_valid.index.get_level_values('instrument').map(stock_index).fillna(733).astype(int)
 
     start_index += len(df_valid.groupby(level=0).size())
-
-    valid_loader = DataLoader(df_valid["feature"], df_valid["label"], df_valid['market_value'], df_valid['stock_index'],
-                              pin_memory=True, start_index=start_index, device=device)
+    if args.target == 'noNorm':
+        df_valid[('bin_label', 'bins')] = df_valid_r[('label', 'Ref($close, -2) / Ref($close, -1) - 1')].apply(lambda x:
+                                                                                                         bin_helper(x))
+        valid_loader = DataLoader(df_valid["feature"], df_valid["bin_label"], df_valid['market_value'],
+                                  df_valid['stock_index'], pin_memory=True, start_index=start_index, device=device,
+                                  task=args.task_name)
+    else:
+        valid_loader = DataLoader(df_valid["feature"], df_valid["label"], df_valid['market_value'],
+                                  df_valid['stock_index'],pin_memory=True, start_index=start_index, device=device)
 
     slc = slice(pd.Timestamp(args.test_start_date), pd.Timestamp(args.test_end_date))
     df_test['market_value'] = df_market_value[slc]
@@ -366,9 +404,15 @@ def create_loaders(args, device):
     df_test['stock_index'] = 733
     df_test['stock_index'] = df_test.index.get_level_values('instrument').map(stock_index).fillna(733).astype(int)
     start_index += len(df_test.groupby(level=0).size())
-
-    test_loader = DataLoader(df_test["feature"], df_test["label"], df_test['market_value'], df_test['stock_index'],
-                             pin_memory=True, start_index=start_index, device=device)
+    if args.target == 'noNorm':
+        df_test[('bin_label', 'bins')] = df_test_r[('label', 'Ref($close, -2) / Ref($close, -1) - 1')].apply(lambda x:
+                                                                                                       bin_helper(x))
+        test_loader = DataLoader(df_test["feature"], df_test["bin_label"], df_test['market_value'],
+                                 df_test['stock_index'],pin_memory=True, start_index=start_index, device=device,
+                                 task=args.task_name)
+    else:
+        test_loader = DataLoader(df_test["feature"], df_test["label"], df_test['market_value'],
+                                 df_test['stock_index'],pin_memory=True, start_index=start_index, device=device)
 
     return train_loader, valid_loader, test_loader
 
@@ -539,29 +583,36 @@ def create_incre_pre_loaders(args, param_dict, device):
     return incre_pre_loader
 
 
-def create_doubleadapt_loaders(args):
-    """
-    load qlib alpha360 data and split into train, validation and test loader
-    :param args:
-    :return:
-    """
-    start_time = datetime.datetime.strptime(args.incre_train_start, '%Y-%m-%d')
-    end_time = datetime.datetime.strptime(args.test_end, '%Y-%m-%d')
-    train_end_time = datetime.datetime.strptime(args.test_end, '%Y-%m-%d')
-
-    handler = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
-            'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
-                        'fit_end_time': train_end_time, 'instruments': 'csi300', 'infer_processors': [
-                    {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
-                    {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
-                        'learn_processors': [{'class': 'DropnaLabel'},
-                                            {'class': 'CSRankNorm', 'kwargs': {'fields_group': 'label'}}],
-                        'label': ['Ref($close, -2) / Ref($close, -1) - 1']}}
-
-    segments = {
-        'train': (args.incre_train_start, args.test_end)
-    }
-    # get dataset from qlib
-    dataset = DatasetH(handler, segments)
-    data = dataset.prepare(["train"], col_set=["feature", "label"], data_key=DataHandlerLP.DK_L, )[0]
-    return data
+def bin_helper(x):
+    if x < -0.05:
+        return 0
+    elif x < 0:
+        return 1
+    elif x < 0.05:
+        return 2
+    else:
+        return 3
+    # if x < -0.05:
+    #     return 0
+    # elif x < -0.04:
+    #     return 1
+    # elif x < -0.03:
+    #     return 2
+    # elif x < -0.02:
+    #     return 3
+    # elif x < -0.01:
+    #     return 4
+    # elif x < 0:
+    #     return 5
+    # elif x < 0.01:
+    #     return 6
+    # elif x < 0.02:
+    #     return 7
+    # elif x < 0.03:
+    #     return 8
+    # elif x < 0.04:
+    #     return 9
+    # elif x < 0.05:
+    #     return 10
+    # else:
+    #     return 11
