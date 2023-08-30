@@ -6,7 +6,7 @@ from qlib.backtest import backtest, executor
 from qlib.contrib.evaluate import risk_analysis
 from qlib.contrib.strategy import TopkDropoutStrategy
 import matplotlib.pyplot as plt
-
+import numpy as np
 csi300_industry_map = {'农林牧渔': ['SZ002311', 'SZ300498', 'SZ002714'],
                        '基础化工': ['SH601216', 'SH600426', 'SH600989', 'SZ002601', 'SH600352', 'SH600309', 'SZ002064', 'SZ000408', 'SZ000792', 'SH603260'],
                        '钢铁': ['SH600010', 'SH600019', 'SZ000708'],
@@ -127,6 +127,50 @@ def backtest_fig(data, model_name, EXECUTOR_CONFIG, backtest_config,time):
     return target
 
 
+def metric_fn(preds, score='score'):
+    preds = preds[~np.isnan(preds['label'])]
+    precision = {}
+    recall = {}
+    temp = preds.groupby(level='datetime').apply(lambda x: x.sort_values(by=score, ascending=False))
+    if len(temp.index[0]) > 2:
+        temp = temp.reset_index(level=0).drop('datetime', axis=1)
+
+    for k in [1, 3, 5, 10, 20, 30, 50, 100]:
+        precision[k] = temp.groupby(level='datetime').apply(lambda x: (x.label[:k] > 0).sum() / k).mean()
+        recall[k] = temp.groupby(level='datetime').apply(lambda x: (x.label[:k] > 0).sum() / (x.label > 0).sum()).mean()
+
+    # mse = mean_squared_error(preds[['label']].values.tolist(),preds[[score]].values.tolist())
+    ic = preds.groupby(level='datetime').apply(lambda x: x.label.corr(x[score])).mean()
+    rank_ic = preds.groupby(level='datetime').apply(lambda x: x.label.corr(x[score], method='spearman')).mean()
+    icir = ic/preds.groupby(level='datetime').apply(lambda x: x.label.corr(x[score])).std()
+    rank_icir = rank_ic/preds.groupby(level='datetime').apply(lambda x: x.label.corr(x[score], method='spearman')).std()
+
+    return precision, recall, ic, rank_ic, icir, rank_icir
+
+
+def evaluation_metric(file_name, model_pool, target, start_time, end_time, evaluate_model='None'):
+    report = pd.DataFrame()
+    slc = slice(pd.Timestamp(start_time), pd.Timestamp(end_time))
+
+    data = pd.read_pickle(file_name)
+    data = data[slc]
+    for name in model_pool:
+        temp = dict()
+        temp['model'] = name
+        precision, recall, ic, rank_ic, icir, rank_icir = metric_fn(data, score=name)
+        temp['P@3'] = precision[3]
+        temp['P@5'] = precision[5]
+        temp['P@10'] = precision[10]
+        temp['P@30'] = precision[30]
+        temp['IC'] = ic
+        temp['ICIR'] = icir
+        temp['RankIC'] = rank_ic
+        temp['RankICIR'] = rank_icir
+        report = report.append(temp, ignore_index=True)
+        print('finish evaluating ', name)
+    pd.to_pickle(report, target)
+    return None
+
 def back_test_main():
     data = pd.read_pickle('pred_output/all_in_one.pkl')
     qlib.init(provider_uri="../qlib_data/cn_data")
@@ -204,6 +248,17 @@ def draw_main():
         print('fig saved')
 
 
+def evaluation_main():
+    model_pool = ['ALSTM_score', 'GATs_score', 'LSTM_score', 'MLP_score',
+       'SFM_score', 'GRU_score']
+    start_time = '2022-06-01'
+    end_time = '2023-06-01'
+    evaluation_metric(file_name='./pred_output/all_in_one_DA.pkl', model_pool=model_pool,
+                      target='./pred_output/performance_12_DA.pkl', start_time=start_time,
+                      end_time=end_time)
+
+
 if __name__ == "__main__":
     # back_test_main()
-    draw_main()
+    # draw_main()
+    evaluation_main()
