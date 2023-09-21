@@ -36,6 +36,34 @@ csi300_industry_map = {'农林牧渔': ['SZ002311', 'SZ300498', 'SZ002714'],
                        '石油石化': ['SH601808', 'SZ000301', 'SZ000703', 'SZ002493', 'SH600028', 'SH600346', 'SZ002648'],
                        '美容护理': ['SH688363']
 }
+csi300_industry_count = {'农林牧渔': 3,
+ '基础化工': 10,
+ '钢铁': 3,
+ '有色金属': 11,
+ '电子': 25,
+ '汽车': 11,
+ '家用电器': 6,
+ '食品饮料': 13,
+ '轻工制造': 2,
+ '医药生物': 26,
+ '公用事业': 6,
+ '交通运输': 9,
+ '房地产': 7,
+ '商贸零售': 2,
+ '社会服务': 2,
+ '银行': 19,
+ '非银金融': 23,
+ '建筑材料': 4,
+ '建筑装饰': 2,
+ '电力设备': 24,
+ '机械设备': 6,
+ '国防军工': 8,
+ '计算机': 15,
+ '传媒': 4,
+ '通信': 3,
+ '煤炭': 4,
+ '石油石化': 7,
+ '美容护理': 1}
 
 
 def backtest_loop(data, model_name, EXECUTOR_CONFIG, backtest_config):
@@ -52,7 +80,7 @@ def backtest_loop(data, model_name, EXECUTOR_CONFIG, backtest_config):
 
     FREQ = "day"
     STRATEGY_CONFIG = {
-    "topk": 100,
+    "topk": 5,
     "n_drop": 0,
     # pred_score, pd.Series
     "signal": data,
@@ -100,7 +128,7 @@ def backtest_fig(data, model_name, EXECUTOR_CONFIG, backtest_config,time):
 
     FREQ = "day"
     STRATEGY_CONFIG = {
-    "topk": 100,
+    "topk": 5,
     "n_drop": 0,
     # pred_score, pd.Series
     "signal": data,
@@ -148,12 +176,19 @@ def metric_fn(preds, score='score'):
     return precision, recall, ic, rank_ic, icir, rank_icir
 
 
-def evaluation_metric(file_name, model_pool, target, start_time, end_time, evaluate_model='None'):
+def evaluation_metric(file_name, target, start_time, end_time, model_pool=None, category='None'):
     report = pd.DataFrame()
     slc = slice(pd.Timestamp(start_time), pd.Timestamp(end_time))
-
     data = pd.read_pickle(file_name)
-    data = data[slc]
+    if category == 'None':
+        data = data[slc]
+    else:
+        data = data.loc[(slc, csi300_industry_map[category]), :]
+        data = data.sort_index(level=0)
+
+    if model_pool is None:
+        model_pool = list(data.columns)
+        model_pool.remove('label')
     for name in model_pool:
         temp = dict()
         temp['model'] = name
@@ -171,8 +206,14 @@ def evaluation_metric(file_name, model_pool, target, start_time, end_time, evalu
     pd.to_pickle(report, target)
     return None
 
-def back_test_main():
-    data = pd.read_pickle('pred_output/all_in_one.pkl')
+
+def backtest_function(model_pool, file_name, start_time, end_time, category, target_file):
+    data = pd.read_pickle(file_name)
+    if category is None:
+        None
+    else:
+        data = data.loc[(slice(None), csi300_industry_map[category]), :]
+        data = data.sort_index(level=0)
     qlib.init(provider_uri="../qlib_data/cn_data")
     data = data.dropna()
     CSI300_BENCH = "SH000300"
@@ -182,8 +223,8 @@ def back_test_main():
     }
     FREQ = 'day'
     backtest_config = {
-        "start_time": "2023-04-01",
-        "end_time": "2023-06-30",
+        "start_time": start_time,
+        "end_time": end_time,
         "account": 100000000,
         "benchmark": CSI300_BENCH,  # "benchmark": NASDAQ_BENCH,
         "exchange_kwargs": {
@@ -195,8 +236,8 @@ def back_test_main():
             # 'close_cost': 0.0003,
             "min_cost": 5,
         }, }
-    model_pool = ['GRU','LSTM','GATs','MLP','ALSTM','HIST','ensemble_retrain','RSR_hidy_is','KEnhance','SFM',
-                  'ensemble_no_retrain', 'Perfomance_based_ensemble', 'average', 'blend', 'dynamic_ensemble']
+    # model_pool = ['GRU','LSTM','GATs','MLP','ALSTM','HIST','ensemble_retrain','RSR_hidy_is','KEnhance','SFM',
+    #               'ensemble_no_retrain', 'Perfomance_based_ensemble', 'average', 'blend', 'dynamic_ensemble']
     # model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'SFM']
     pd_pool = []
     for model in model_pool:
@@ -213,11 +254,16 @@ def back_test_main():
             pd_pool.extend([er_w_cost])
     df = pd.concat(pd_pool, axis=1)
     df = df.T
-    df.to_pickle('pred_output/backtest_3_3.pkl')
+    df.to_pickle(target_file)
 
 
-def draw_main():
-    data = pd.read_pickle('pred_output/all_in_one.pkl')
+def draw_main(file_name, model_pool, start_time, end_time, file_note, category=None):
+    data = pd.read_pickle(file_name)
+    if category is None:
+        None
+    else:
+        data = data.loc[(slice(None), csi300_industry_map[category]), :]
+        data = data.sort_index(level=0)
     qlib.init(provider_uri="../qlib_data/cn_data")
     data = data.dropna()
     CSI300_BENCH = "SH000300"
@@ -227,8 +273,8 @@ def draw_main():
     }
     FREQ = 'day'
     backtest_config = {
-        "start_time": "2022-06-01",
-        "end_time": "2023-06-30",
+        "start_time": start_time,
+        "end_time": end_time,
         "account": 100000000,
         "benchmark": CSI300_BENCH,  # "benchmark": NASDAQ_BENCH,
         "exchange_kwargs": {
@@ -239,26 +285,44 @@ def draw_main():
             "close_cost": 0.00015,
             "min_cost": 5,
         }, }
-    model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'HIST', 'ensemble_retrain', 'RSR_hidy_is', 'KEnhance', 'SFM',
-                  'ensemble_no_retrain', 'Perfomance_based_ensemble', 'average', 'blend', 'dynamic_ensemble']
+    # model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'HIST', 'ensemble_retrain', 'RSR_hidy_is', 'KEnhance', 'SFM',
+    #               'ensemble_no_retrain', 'Perfomance_based_ensemble', 'average', 'blend', 'dynamic_ensemble']
     # model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'SFM']
     for model in model_pool:
         symbol = model + '_score'
-        report_normal = backtest_fig(data, symbol, EXECUTOR_CONFIG, backtest_config, time='12_3')
+        report_normal = backtest_fig(data, symbol, EXECUTOR_CONFIG, backtest_config, time=file_note)
         print('fig saved')
 
 
 def evaluation_main():
-    model_pool = ['ALSTM_score', 'GATs_score', 'LSTM_score', 'MLP_score',
-       'SFM_score', 'GRU_score']
     start_time = '2022-06-01'
-    end_time = '2023-06-01'
-    evaluation_metric(file_name='./pred_output/all_in_one_DA.pkl', model_pool=model_pool,
-                      target='./pred_output/performance_12_DA.pkl', start_time=start_time,
-                      end_time=end_time)
+    end_time = '2023-06-30'
+    evaluation_metric(file_name='./pred_output/all_in_one.pkl',target='./pred_output/performance_12_jisuanji.pkl',
+                      start_time=start_time, end_time=end_time, category='计算机')
+
+
+def backtest_main():
+    """
+    first generate backtest pkl then draw pictures
+    """
+    start_time = "2022-06-01"
+    end_time = "2023-06-30"
+    model_pool = ['GRU','LSTM','GATs','MLP','ALSTM','HIST','ensemble_retrain','RSR_hidy_is','KEnhance','SFM',
+                  'ensemble_no_retrain', 'Perfomance_based_ensemble', 'average', 'blend', 'dynamic_ensemble']
+    file_name = 'pred_output/all_in_one.pkl'
+    start_time_list = ["2022-06-01", "2023-01-01", "2023-04-01"]
+    time_periodlist = ['12', '6', '3']
+    cat_list = ['电子', '医药生物', '银行', '非银金融', '电力设备', '计算机']
+    cat_list_1 = ['dianzi', 'yiyaoshengwu', 'yinhang', 'feiyinjinrong', 'dianlishebei', 'jisuanji']
+    for j in range(len(time_periodlist)):
+        for i in range(len(cat_list)):
+            backtest_function(model_pool, file_name, start_time_list[j], end_time, cat_list[i],
+                              target_file='pred_output/backtest_'+time_periodlist[j]+cat_list_1[i]+'.pkl')
+            draw_main(file_name, model_pool, start_time_list[j], end_time,
+                      file_note=time_periodlist[j]+"_"+cat_list_1[i], category=cat_list[i])
+
 
 
 if __name__ == "__main__":
-    # back_test_main()
-    # draw_main()
-    evaluation_main()
+    backtest_main()
+    # evaluation_main()
