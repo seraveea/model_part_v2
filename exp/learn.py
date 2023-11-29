@@ -567,8 +567,7 @@ def parse_args():
     # input for csi 300
     parser.add_argument('--market_value_path', default='./data/csi300_market_value_07to22.pkl')
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
-    # parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
-    parser.add_argument('--q', default='./data/csi300_multi_stock2stock_hidy_2023.npy')
+    parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_hidy_2023.npy')
     parser.add_argument('--stock_index', default='./data/csi300_stock_index_2023.npy')
     parser.add_argument('--outdir', default='./output/for_platform/new_KEnhance_2023')
     parser.add_argument('--overwrite', action='store_true', default=False)
