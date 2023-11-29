@@ -16,7 +16,8 @@ import pandas as pd
 from torch.utils.tensorboard import SummaryWriter
 import sys
 sys.path.insert(0, sys.path[0]+"/../")
-from models.model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR, relation_GATs, relation_GATs_3heads, KEnhance
+from models.model import MLP, HIST, GRU, LSTM, GAT, ALSTM, SFM, RSR, relation_GATs, relation_GATs_3heads, KEnhance, \
+    s2s_HIST
 from qlib.contrib.model.pytorch_transformer import Transformer
 from models.DLinear import DLinear_model
 from models.Autoformer import Model as autoformer
@@ -53,7 +54,8 @@ relation_model_dict = [
     'RSR',
     'relation_GATs',
     'relation_GATs_3heads',
-    'KEnhance'
+    'KEnhance',
+    's2s_HIST'
 ]
 
 
@@ -120,6 +122,9 @@ def get_model(model_name):
 
     if model_name.upper() == 'KENHANCE':
         return KEnhance
+
+    if model_name.upper() == 'S2S_HIST':
+        return s2s_HIST
 
     raise ValueError('unknown model name `%s`'%model_name)
 
@@ -196,7 +201,10 @@ def train_epoch(epoch, model, optimizer, train_loader, writer, args,
             # the stock2concept_matrix[stock_index] is a matrix, shape is (the number of stock index, predefined con)
             # the stock2concept_matrix has been sort to the order of stock index
         elif args.model_name in relation_model_dict:
-            pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
+            if args.model_name == 's2s_HIST':
+                pred = model(feature, stock2stock_matrix[stock_index][:, stock_index], market_value)
+            else:
+                pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
         elif args.model_name in time_series_library:
             # new added
             pred = model(feature, mask)
@@ -233,7 +241,10 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
             if args.model_name == 'HIST':
                 pred = model(feature, stock2concept_matrix[stock_index], market_value)
             elif args.model_name in relation_model_dict:
-                pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
+                if args.model_name == 's2s_HIST':
+                    pred = model(feature, stock2stock_matrix[stock_index][:, stock_index], market_value)
+                else:
+                    pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             elif args.model_name in time_series_library:
                 # new added
                 pred = model(feature, mask)
@@ -255,7 +266,7 @@ def test_epoch(epoch, model, test_loader, writer, args, stock2concept_matrix=Non
     score is also very important, since it decide which model to choose 
     '''
     # scores = ic + ndcg[100] + precision[100]
-    scores = ic
+    scores = rank_ic
     # scores = (precision[3] + precision[5] + precision[10] + precision[30])/4.0
     # scores = -1.0 * mse
 
@@ -279,7 +290,10 @@ def inference(model, data_loader, stock2concept_matrix=None, stock2stock_matrix=
             if args.model_name == 'HIST':
                 pred = model(feature, stock2concept_matrix[stock_index], market_value)
             elif args.model_name in relation_model_dict:
-                pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
+                if args.model_name == 's2s_HIST':
+                    pred = model(feature, stock2stock_matrix[stock_index][:, stock_index], market_value)
+                else:
+                    pred = model(feature, stock2stock_matrix[stock_index][:, stock_index])
             elif args.model_name in time_series_library:
                 # new added
                 pred = model(feature, mask)
@@ -332,6 +346,7 @@ def main(args):
     all_ic = []
     all_rank_ic = []
     all_ndcg = []
+    global_best_score = -np.inf
     for times in range(args.repeat):
         pprint('create model...')
         if args.model_name == 'SFM':
@@ -413,7 +428,10 @@ def main(args):
 
         pprint('best score:', best_score, '@', best_epoch)
         model.load_state_dict(best_param)
-        torch.save(best_param, output_path+'/model.bin')
+        if best_score > global_best_score:
+            # only save when we have a new global score
+            torch.save(best_param, output_path+'/model.bin')
+            global_best_score = best_score
 
         pprint('inference...')
         res = dict()
@@ -422,7 +440,7 @@ def main(args):
             pred = inference(model, eval(name+'_loader'), stock2concept_matrix=stock2concept_matrix,
                             stock2stock_matrix=stock2stock_matrix)
             # save the pkl every repeat time
-            # pred.to_pickle(output_path+'/pred.pkl.'+name+str(times))
+            pred.to_pickle(output_path+'/pred.pkl.'+name+str(times))
 
             precision, recall, ic, rank_ic, ndcg = metric_fn(pred)
 
@@ -490,7 +508,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # model
-    parser.add_argument('--model_name', default='RSR')
+    parser.add_argument('--model_name', default='KEnhance')
     parser.add_argument('--d_feat', type=int, default=6)
     parser.add_argument('--hidden_size', type=int, default=128)
     parser.add_argument('--num_layers', type=int, default=2)
@@ -519,41 +537,42 @@ def parse_args():
 
     # training
     parser.add_argument('--n_epochs', type=int, default=100)
-    parser.add_argument('--lr', type=float, default=2e-4)
+    parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--early_stop', type=int, default=30)
     parser.add_argument('--smooth_steps', type=int, default=5)
-    parser.add_argument('--metric', default='IC')
+    parser.add_argument('--metric', default='Rank_IC')
     parser.add_argument('--loss', default='mse')
     parser.add_argument('--repeat', type=int, default=5)
 
     # data
     parser.add_argument('--data_set', type=str, default='csi300')
-    parser.add_argument('--target', type=str, default='t+0')
+    parser.add_argument('--target', type=str, default='t+1')
     parser.add_argument('--pin_memory', action='store_false', default=True)
     parser.add_argument('--batch_size', type=int, default=-1)  # -1 indicate daily batch
     parser.add_argument('--least_samples_num', type=float, default=1137.0) 
     parser.add_argument('--label', default='')  # specify other labels
-    parser.add_argument('--train_start_date', default='2007-01-01')
-    parser.add_argument('--train_end_date', default='2014-12-31')
-    parser.add_argument('--valid_start_date', default='2015-01-01')
-    parser.add_argument('--valid_end_date', default='2018-12-31')
-    parser.add_argument('--test_start_date', default='2019-01-01')
-    parser.add_argument('--test_end_date', default='2022-12-31')
+    parser.add_argument('--train_start_date', default='2008-01-01')
+    parser.add_argument('--train_end_date', default='2021-05-31')
+    parser.add_argument('--valid_start_date', default='2021-06-01')
+    parser.add_argument('--valid_end_date', default='2022-06-01')
+    parser.add_argument('--test_start_date', default='2022-06-01')
+    parser.add_argument('--test_end_date', default='2023-06-30')
 
     # other
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--annot', default='')
     parser.add_argument('--config', action=ParseConfigFile, default='')
-    parser.add_argument('--name', type=str, default='RSR')
+    parser.add_argument('--name', type=str, default='')
 
     # input for csi 300
     parser.add_argument('--market_value_path', default='./data/csi300_market_value_07to22.pkl')
     parser.add_argument('--stock2concept_matrix', default='./data/csi300_stock2concept.npy')
-    parser.add_argument('--stock2stock_matrix', default='./data/ablation/csi300_multi_stock2stock_all.npy')
-    parser.add_argument('--stock_index', default='./data/csi300_stock_index.npy')
-    parser.add_argument('--outdir', default='./output/for_nips_re/RSR_all')
+    # parser.add_argument('--stock2stock_matrix', default='./data/csi300_multi_stock2stock_all.npy')
+    parser.add_argument('--q', default='./data/csi300_multi_stock2stock_hidy_2023.npy')
+    parser.add_argument('--stock_index', default='./data/csi300_stock_index_2023.npy')
+    parser.add_argument('--outdir', default='./output/for_platform/new_KEnhance_2023')
     parser.add_argument('--overwrite', action='store_true', default=False)
-    parser.add_argument('--device', default='cuda:1')
+    parser.add_argument('--device', default='cuda:0')
     args = parser.parse_args()
 
     return args

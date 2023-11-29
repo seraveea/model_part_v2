@@ -178,6 +178,9 @@ def batch_prediction(args, model_pool, device):
     test_loader = create_test_loaders(args, initial_param, device=device)
     output_group = []
     for i in model_pool:
+        if i == 'new_HIST':
+            initial_param = json.load(open(args.prefix + model_pool[-1] + '/info.json'))['config']
+            test_loader = create_test_loaders(args, initial_param, device=device)
         model_path = args.prefix+i
         param_dict = json.load(open(model_path+'/info.json'))['config']
         param_dict['model_dir'] = model_path
@@ -200,7 +203,7 @@ def average_and_blend(args, data, model_pool):
     data['average_score'] = data[model_score].mean(axis=1)
     # for blend, we need to split it to train set and test set, run linear regression to learn weight
     # and test the performance on test set
-    btrain_slc = slice(pd.Timestamp(args.test_start_date), pd.Timestamp(args.blend_split_date))
+    btrain_slc = slice(pd.Timestamp(args.blend_start_date), pd.Timestamp(args.blend_split_date))
     btest_slc = slice(pd.Timestamp(args.blend_split_date), pd.Timestamp(args.test_end_date))
     btrain_data = data[btrain_slc]
     btest_data = data[btest_slc]
@@ -336,13 +339,15 @@ def sim_linear(data, model_pool, lookback=30, eva_type='ic', select_num=5):
 
 
 def main(args, device):
-    model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'SFM']
-    all_model_pool = ['RSR_hidy_is', 'KEnhance', 'LSTM', 'GRU', 'GATs', 'MLP', 'ALSTM', 'SFM', 'HIST']
-    output = batch_prediction(args, model_pool, device)
-    output, report = average_and_blend(args, output, all_model_pool)
-    output, report = sjtu_ensemble(args, output, all_model_pool)
-    output, report = sim_linear(output, all_model_pool)
-    pd.to_pickle(output, 'pred_output/all_in_one_incre.pkl')
+    # model_pool = ['GRU', 'LSTM', 'GATs', 'MLP', 'ALSTM', 'SFM']
+    # all_model_pool = ['RSR_hidy_is', 'KEnhance', 'LSTM', 'GRU', 'GATs', 'MLP', 'ALSTM', 'SFM', 'HIST']
+    test_model_pool = ['new_MLP', 'new_RSR', 'new_GRU', 'new_KEnhance_1',
+                       'new_GATs', 'new_LSTM', 'new_SFM', 'new_HIST']
+    output = batch_prediction(args, test_model_pool, device)
+    output, report = average_and_blend(args, output, test_model_pool)
+    # output, report = sjtu_ensemble(args, output, all_model_pool)
+    # output, report = sim_linear(output, all_model_pool)
+    pd.to_pickle(output, 'pred_output/new_all_in_one.pkl')
     print(output.head())
     # print(report)
 
@@ -355,8 +360,10 @@ def parse_args():
     """
     parser = argparse.ArgumentParser()
     # data
-    parser.add_argument('--test_start_date', default='2021-01-01')
-    parser.add_argument('--blend_split_date', default='2021-06-01')
+    parser.add_argument('--fit_start_date', default='2008-01-01')
+    parser.add_argument('--fit_end_date', default='2021-05-31')
+    parser.add_argument('--blend_start_date', default='2021-06-01')
+    parser.add_argument('--blend_split_date', default='2022-06-01')
     parser.add_argument('--test_end_date', default='2023-06-30')
     parser.add_argument('--device', default='cuda:1')
     parser.add_argument('--incremental_mode', default=False, help='load incremental updated models or not')

@@ -417,18 +417,19 @@ def create_loaders(args, device):
     return train_loader, valid_loader, test_loader
 
 
-def create_test_loaders(args, param_dict,device):
+def create_test_loaders(args, param_dict, device):
     """
     return a single dataloader for prediction
     """
-    start_time = datetime.datetime.strptime(args.test_start_date, '%Y-%m-%d')
+    start_time = datetime.datetime.strptime(args.fit_start_date, '%Y-%m-%d')
+    fit_end_time = datetime.datetime.strptime(args.fit_end_date, '%Y-%m-%d')
     end_time = datetime.datetime.strptime(args.test_end_date, '%Y-%m-%d')
-    start_date = args.test_start_date
+    start_date = args.blend_start_date
     end_date = args.test_end_date
     # 此处fit_start_time参照官方文档和代码
     hanlder = {'class': 'Alpha360', 'module_path': 'qlib.contrib.data.handler',
                'kwargs': {'start_time': start_time, 'end_time': end_time, 'fit_start_time': start_time,
-                          'fit_end_time': end_time, 'instruments': param_dict['data_set'], 'infer_processors': [
+                          'fit_end_time': fit_end_time, 'instruments': param_dict['data_set'], 'infer_processors': [
                        {'class': 'RobustZScoreNorm', 'kwargs': {'fields_group': 'feature', 'clip_outlier': True}},
                        {'class': 'Fillna', 'kwargs': {'fields_group': 'feature'}}],
                           'learn_processors': [{'class': 'DropnaLabel'},
